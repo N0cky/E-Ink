@@ -6,7 +6,9 @@ LABEL org.opencontainers.image.title="PlexImageE-Ink" \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PLEXINK_OUTPUT_DIR=/output \
+    PLEXINK_LOGS_DIR=/logs
 
 WORKDIR /app
 
