@@ -14,19 +14,23 @@ class SettingsValidationFlowTest(unittest.TestCase):
         self.client = server_module.app.test_client()
 
     @staticmethod
-    def _apply_gallery_form_defaults(form_data: dict[str, str]) -> dict[str, str]:
-        form_data.setdefault("GALLERY_PATHS", "")
-        form_data.setdefault("GALLERY_RECURSIVE", "true")
-        form_data.setdefault("GALLERY_ORDER", "random")
-        form_data.setdefault("GALLERY_INTERVAL_MODE", "idle_rotation")
-        form_data.setdefault("GALLERY_INTERVAL_SECONDS", "300")
-        form_data.setdefault("GALLERY_AVOID_RECENT_COUNT", "5")
-        form_data.setdefault("GALLERY_FIT_MODE", "fit_blur_bg")
-        form_data.setdefault("GALLERY_OVERLAY_MODE", "none")
+    def _build_valid_form_data() -> dict[str, str]:
+        sections = server_module._build_settings_sections()
+        all_fields = server_module._all_fields_from_sections(sections)
+        current = dict(get_settings_values())
+        form_data: dict[str, str] = {}
+
+        for field in all_fields:
+            name = field["name"]
+            value = current.get(name)
+            if value in (None, ""):
+                value = field.get("default", "")
+            form_data[name] = str(value)
+
         return form_data
 
     def test_invalid_module_settings_block_save(self) -> None:
-        form_data = self._apply_gallery_form_defaults(dict(get_settings_values()))
+        form_data = self._build_valid_form_data()
         form_data["DWD_WEATHER_STATION_ID"] = "abc"
 
         with (
@@ -44,7 +48,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         render_image.assert_not_called()
 
     def test_gallery_enabled_without_paths_blocks_save(self) -> None:
-        form_data = self._apply_gallery_form_defaults(dict(get_settings_values()))
+        form_data = self._build_valid_form_data()
         idle_modules = [item for item in form_data.get("IDLE_MODULES", "").split(",") if item]
         if "gallery" not in idle_modules:
             idle_modules.append("gallery")
@@ -69,7 +73,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         render_image.assert_not_called()
 
     def test_valid_settings_submit_redirects(self) -> None:
-        form_data = self._apply_gallery_form_defaults(dict(get_settings_values()))
+        form_data = self._build_valid_form_data()
         with tempfile.TemporaryDirectory() as tmp:
             form_data["GALLERY_PATHS"] = tmp
 
