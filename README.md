@@ -154,8 +154,8 @@ docker build -t pleximagee-ink .
 docker run --rm -p 8787:8787 \
   -e PLEXINK_CONFIG_FILE=/config/settings.env \
   -v ./config:/config \
-  -v ./data/output:/app/data/output \
-  -v ./logs:/app/logs \
+  -v ./data/output:/output \
+  -v ./logs:/logs \
   pleximagee-ink
 ```
 
@@ -200,8 +200,8 @@ Typical Unraid mapping:
   - `PLEXINK_CONFIG_FILE=/config/settings.env`
 - AppData / volumes:
   - `/mnt/user/appdata/pleximagee-ink/config` -> `/config`
-  - `/mnt/user/appdata/pleximagee-ink/output` -> `/app/data/output`
-  - `/mnt/user/appdata/pleximagee-ink/logs` -> `/app/logs`
+  - `/mnt/user/appdata/pleximagee-ink/output` -> `/output`
+  - `/mnt/user/appdata/pleximagee-ink/logs` -> `/logs`
 
 Keep the main runtime configuration in `/config/settings.env`.
 
@@ -285,8 +285,7 @@ PlexImageE-Ink/
 │   ├── module_services.py      # Service dataclasses for modular renderers
 │   ├── http_client.py          # Shared HTTP client (requests.Session)
 │   ├── plex.py                 # Plex API client (session parsing, artwork)
-│   ├── image_rendering.py      # Shared rendering utilities
-│   └── data_sources/           # Backward-compat stubs pointing to modules/
+│   └── image_rendering.py      # Shared rendering utilities
 │
 ├── modules/                    # Fully self-contained modules
 │   ├── plex/

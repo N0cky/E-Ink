@@ -272,16 +272,7 @@ function visibleEntries() {
 function formatTimestamp(ts) {
     if (!ts) return '';
 
-    let parsed = null;
-
-    if (/[zZ]|[+-]\d{2}:\d{2}$/.test(ts)) {
-        parsed = new Date(ts);
-    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(ts)) {
-        // Backward-compat fuer alte Logeintraege ohne Offset.
-        parsed = new Date(ts + 'Z');
-    } else {
-        parsed = new Date(ts);
-    }
+    const parsed = new Date(ts);
 
     if (Number.isNaN(parsed.getTime())) {
         return String(ts).replace('T', ' ');

@@ -558,10 +558,6 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     render_w, render_h = get_effective_render_size(base_w, base_h, rotation)
 
     idle_modules_raw = get_env_value(settings, "IDLE_MODULES", "")
-    # Backward-compat: alter Key TAGESSCHAU_IDLE_ENABLED
-    if not idle_modules_raw and parse_bool_env(settings.get("TAGESSCHAU_IDLE_ENABLED"), False):
-        idle_modules_raw = "tagesschau"
-
     refresh_interval = _parse_int(settings, "REFRESH_INTERVAL", 60, 10, 3600)
     output_format = get_env_value(settings, "OUTPUT_FORMAT", "png")
     display_theme = get_env_value(settings, "DISPLAY_THEME", "dark")
@@ -625,10 +621,6 @@ def collect_settings_form_data(form, all_fields: list[dict]) -> dict[str, str]:
             updates[name] = ",".join(form.getlist(name))
         else:
             updates[name] = as_env_value(form.get(name, ""))
-
-    # Backward-compat
-    selected = {item for item in updates.get("IDLE_MODULES", "").split(",") if item}
-    updates["TAGESSCHAU_IDLE_ENABLED"] = "true" if "tagesschau" in selected else "false"
     return updates
 
 
