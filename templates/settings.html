@@ -117,6 +117,7 @@ form { display: grid; gap: 20px; }
     padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px;
     transition: border-color .15s, background .15s;
 }
+.field.is-hidden { display: none; }
 .field:focus-within { border-color: var(--accent); background: rgba(20,184,166,.05); }
 .field.wide { grid-column: 1 / -1; }
 .field.field-display-theme { border-color: var(--accent); background: var(--accent-dim); }
@@ -221,7 +222,8 @@ input::placeholder { color: var(--muted); }
 {% macro render_field(f) %}
 {% set cur = values[f.name] if f.name in values else (f.default if 'default' in f else '') %}
 {% set sel_vals = cur.split(',') if f.type in ('checkbox_group','priority_list') and cur else [] %}
-<div class="field{% if f.wide %} wide{% endif %}{% if f.name == 'DISPLAY_THEME' %} field-display-theme{% endif %}">
+<div class="field{% if f.wide %} wide{% endif %}{% if f.name == 'DISPLAY_THEME' %} field-display-theme{% endif %}"
+     {% if f.show_when is defined %}data-show-when='{{ f.show_when | tojson }}'{% endif %}>
     <label class="field-label" for="{{ f.name }}">{{ f.label }}</label>
 
     {% if f.type == 'select' %}
@@ -390,6 +392,7 @@ input::placeholder { color: var(--muted); }
                 <div class="status-card"><div class="status-label">Medientypen</div><div class="status-value">{{ runtime.priority }}</div></div>
                 <div class="status-card"><div class="status-label">Idle-Module</div><div class="status-value">{{ runtime.idle_modules }}</div></div>
                 <div class="status-card"><div class="status-label">Idle-Rotation</div><div class="status-value">{{ runtime.idle_rotation }}</div></div>
+                <div class="status-card"><div class="status-label">Nachtmodus</div><div class="status-value">{{ runtime.night_mode }}</div></div>
                 <div class="status-card"><div class="status-label">DWD-Station</div><div class="status-value">{{ runtime.dwd_station }}</div></div>
             </div>
 
@@ -563,6 +566,44 @@ document.addEventListener('keydown', function (e) {
                 if (currentVal) { var opt = document.createElement('option'); opt.value = currentVal; opt.textContent = currentVal; opt.selected = true; sel.appendChild(opt); }
             });
     });
+})();
+
+/* ── Bedingte Felder (z. B. Nachtmodus) ── */
+(function () {
+    var form = document.getElementById('settingsForm');
+
+    function readFieldValues(name) {
+        var nodes = form.querySelectorAll('[name="' + name + '"]');
+        if (!nodes.length) return [];
+        var first = nodes[0];
+        if (first.type === 'checkbox') {
+            return Array.from(nodes).filter(function (n) { return n.checked; }).map(function (n) { return n.value; });
+        }
+        return [first.value];
+    }
+
+    function shouldShowField(field) {
+        var raw = field.getAttribute('data-show-when');
+        if (!raw) return true;
+        try {
+            var rules = JSON.parse(raw);
+            return Object.keys(rules).every(function (name) {
+                return readFieldValues(name).includes(String(rules[name]));
+            });
+        } catch {
+            return true;
+        }
+    }
+
+    function refreshConditionalFields() {
+        form.querySelectorAll('.field[data-show-when]').forEach(function (field) {
+            field.classList.toggle('is-hidden', !shouldShowField(field));
+        });
+    }
+
+    form.addEventListener('change', refreshConditionalFields);
+    form.addEventListener('input', refreshConditionalFields);
+    refreshConditionalFields();
 })();
 
 /* ── Prioritätsliste (Drag-and-Drop) ── */

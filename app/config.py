@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -282,6 +283,76 @@ SETTINGS_FIELDS: list[dict] = [
         "max":         3600,
         "help":        "Intervall in Sekunden für die Rotation zwischen mehreren Idle-Modulen.",
     },
+    {
+        "name":    "NIGHT_MODE_ENABLED",
+        "label":   "Nachtmodus",
+        "type":    "select",
+        "section": "framework",
+        "wide":    False,
+        "default": "false",
+        "options": [("false", "Deaktiviert"), ("true", "Aktiviert")],
+        "help":    "Reduziert nachts das Update-Intervall und kann die Idle-Auswahl begrenzen.",
+    },
+    {
+        "name":        "NIGHT_MODE_START",
+        "label":       "Nachtmodus ab",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        False,
+        "default":     "23:00",
+        "placeholder": "23:00",
+        "help":        "Lokale Uhrzeit im Format HH:MM, ab der der Nachtmodus aktiv wird.",
+        "show_when":   {"NIGHT_MODE_ENABLED": "true"},
+    },
+    {
+        "name":        "NIGHT_MODE_END",
+        "label":       "Nachtmodus bis",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        False,
+        "default":     "07:00",
+        "placeholder": "07:00",
+        "help":        "Lokale Uhrzeit im Format HH:MM, bis zu der der Nachtmodus aktiv bleibt.",
+        "show_when":   {"NIGHT_MODE_ENABLED": "true"},
+    },
+    {
+        "name":        "NIGHT_MODE_INTERVAL_MINUTES",
+        "label":       "Update-Intervall nachts (min)",
+        "type":        "number",
+        "section":     "framework",
+        "wide":        False,
+        "default":     "15",
+        "placeholder": "15",
+        "min":         1,
+        "max":         720,
+        "help":        "Wie oft Idle-Inhalte nachts aktualisiert werden sollen.",
+        "show_when":   {"NIGHT_MODE_ENABLED": "true"},
+    },
+    {
+        "name":    "NIGHT_MODE_IDLE_BEHAVIOR",
+        "label":   "Idle-Verhalten nachts",
+        "type":    "select",
+        "section": "framework",
+        "wide":    True,
+        "default": "rotate",
+        "options": [
+            ("rotate", "Weiter zwischen aktiven Idle-Modulen rotieren"),
+            ("fixed", "Nur ein festes Idle-Modul verwenden"),
+        ],
+        "help":    "Legt fest, ob nachts weiter rotiert wird oder nur ein einzelnes Idle-Modul aktiv ist.",
+        "show_when": {"NIGHT_MODE_ENABLED": "true"},
+    },
+    {
+        "name":    "NIGHT_MODE_FIXED_MODULE",
+        "label":   "Festes Nachtmodul",
+        "type":    "select",
+        "section": "framework",
+        "wide":    False,
+        "default": "",
+        "options": [],
+        "help":    "Dieses Idle-Modul bleibt nachts dauerhaft aktiv.",
+        "show_when": {"NIGHT_MODE_ENABLED": "true", "NIGHT_MODE_IDLE_BEHAVIOR": "fixed"},
+    },
 ]
 
 SETTINGS_FIELD_ORDER = [f["name"] for f in SETTINGS_FIELDS]
@@ -305,9 +376,29 @@ SETTINGS_GROUPS: list[dict] = [
     {
         "title":  "Idle-Verwaltung",
         "desc":   "Welche Idle-Module angezeigt werden und wie zwischen ihnen rotiert wird.",
-        "fields": ["IDLE_MODULES", "IDLE_MODULE_ROTATION_SECONDS"],
+        "fields": [
+            "IDLE_MODULES",
+            "IDLE_MODULE_ROTATION_SECONDS",
+            "NIGHT_MODE_ENABLED",
+            "NIGHT_MODE_START",
+            "NIGHT_MODE_END",
+            "NIGHT_MODE_INTERVAL_MINUTES",
+            "NIGHT_MODE_IDLE_BEHAVIOR",
+            "NIGHT_MODE_FIXED_MODULE",
+        ],
     },
 ]
+
+
+TIME_OF_DAY_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+
+def parse_time_of_day_to_minutes(raw_value: str) -> int | None:
+    value = (raw_value or "").strip()
+    if not TIME_OF_DAY_RE.match(value):
+        return None
+    hour, minute = value.split(":", 1)
+    return int(hour) * 60 + int(minute)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +515,15 @@ class RuntimeConfig:
     # Idle-Verwaltung
     idle_module_ids:               tuple = ()
     idle_module_rotation_seconds:  int   = 120
+    night_mode_enabled:            bool  = False
+    night_mode_start:              str   = "23:00"
+    night_mode_end:                str   = "07:00"
+    night_mode_start_minutes:      int   = 1380
+    night_mode_end_minutes:        int   = 420
+    night_mode_interval_minutes:   int   = 15
+    night_mode_interval_seconds:   int   = 900
+    night_mode_idle_behavior:      str   = "rotate"
+    night_mode_fixed_module_id:    str   = ""
     # Vollständige Settingsmap inkl. Modul-Feldern
     settings_values: dict[str, str] = field(default_factory=dict)
 
@@ -544,6 +644,29 @@ def validate_settings(updates: dict[str, str], all_fields: list[dict] | None = N
         except ValueError:
             errors.append(f"{f['label']}: Muss eine ganze Zahl sein.")
 
+    if parse_bool_env(updates.get("NIGHT_MODE_ENABLED"), False):
+        start_raw = get_env_value(updates, "NIGHT_MODE_START", "23:00")
+        end_raw = get_env_value(updates, "NIGHT_MODE_END", "07:00")
+        start_minutes = parse_time_of_day_to_minutes(start_raw)
+        end_minutes = parse_time_of_day_to_minutes(end_raw)
+        if start_minutes is None:
+            errors.append("Nachtmodus ab: Bitte Uhrzeit im Format HH:MM angeben.")
+        if end_minutes is None:
+            errors.append("Nachtmodus bis: Bitte Uhrzeit im Format HH:MM angeben.")
+        if start_minutes is not None and end_minutes is not None and start_minutes == end_minutes:
+            errors.append("Nachtmodus: Start und Ende dürfen nicht identisch sein.")
+
+        behavior = get_env_value(updates, "NIGHT_MODE_IDLE_BEHAVIOR", "rotate")
+        if behavior not in {"rotate", "fixed"}:
+            errors.append("Idle-Verhalten nachts: Ungültige Auswahl.")
+        if behavior == "fixed":
+            fixed_module = get_env_value(updates, "NIGHT_MODE_FIXED_MODULE", "")
+            active_idle = parse_idle_module_ids(get_env_value(updates, "IDLE_MODULES", ""))
+            if not fixed_module:
+                errors.append("Festes Nachtmodul: Bitte ein Idle-Modul auswählen.")
+            elif fixed_module not in active_idle:
+                errors.append("Festes Nachtmodul: Das Modul muss auch in den aktiven Idle-Modulen enthalten sein.")
+
     return errors
 
 
@@ -564,6 +687,22 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     timezone_name = get_env_value(settings, "TIMEZONE", "Europe/Berlin")
     idle_module_ids = parse_idle_module_ids(idle_modules_raw)
     idle_rotation_seconds = _parse_int(settings, "IDLE_MODULE_ROTATION_SECONDS", 120, 30, 3600)
+    night_mode_enabled = parse_bool_env(settings.get("NIGHT_MODE_ENABLED"), False)
+    night_mode_start = get_env_value(settings, "NIGHT_MODE_START", "23:00")
+    night_mode_end = get_env_value(settings, "NIGHT_MODE_END", "07:00")
+    night_mode_start_minutes = parse_time_of_day_to_minutes(night_mode_start)
+    if night_mode_start_minutes is None:
+        night_mode_start = "23:00"
+        night_mode_start_minutes = 23 * 60
+    night_mode_end_minutes = parse_time_of_day_to_minutes(night_mode_end)
+    if night_mode_end_minutes is None:
+        night_mode_end = "07:00"
+        night_mode_end_minutes = 7 * 60
+    night_mode_interval_minutes = _parse_int(settings, "NIGHT_MODE_INTERVAL_MINUTES", 15, 1, 720)
+    night_mode_idle_behavior = get_env_value(settings, "NIGHT_MODE_IDLE_BEHAVIOR", "rotate")
+    if night_mode_idle_behavior not in {"rotate", "fixed"}:
+        night_mode_idle_behavior = "rotate"
+    night_mode_fixed_module_id = get_env_value(settings, "NIGHT_MODE_FIXED_MODULE", "")
 
     normalized_settings = {
         key: as_env_value(value)
@@ -580,6 +719,12 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
+        "NIGHT_MODE_ENABLED": as_env_value(night_mode_enabled),
+        "NIGHT_MODE_START": as_env_value(night_mode_start),
+        "NIGHT_MODE_END": as_env_value(night_mode_end),
+        "NIGHT_MODE_INTERVAL_MINUTES": as_env_value(night_mode_interval_minutes),
+        "NIGHT_MODE_IDLE_BEHAVIOR": as_env_value(night_mode_idle_behavior),
+        "NIGHT_MODE_FIXED_MODULE": as_env_value(night_mode_fixed_module_id),
     })
 
     _cfg = RuntimeConfig(
@@ -594,6 +739,15 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         timezone=timezone_name,
         idle_module_ids=idle_module_ids,
         idle_module_rotation_seconds=idle_rotation_seconds,
+        night_mode_enabled=night_mode_enabled,
+        night_mode_start=night_mode_start,
+        night_mode_end=night_mode_end,
+        night_mode_start_minutes=night_mode_start_minutes,
+        night_mode_end_minutes=night_mode_end_minutes,
+        night_mode_interval_minutes=night_mode_interval_minutes,
+        night_mode_interval_seconds=night_mode_interval_minutes * 60,
+        night_mode_idle_behavior=night_mode_idle_behavior,
+        night_mode_fixed_module_id=night_mode_fixed_module_id,
         settings_values=normalized_settings,
     )
 
@@ -633,6 +787,10 @@ def get_settings_runtime_summary() -> dict[str, str]:
         "output_format":       "BMP (Spectra 6)" if cfg.output_format == "bmp" else "PNG",
         "idle_modules":        ", ".join(cfg.idle_module_ids) if cfg.idle_module_ids else "Keine",
         "idle_rotation":       f"{cfg.idle_module_rotation_seconds}s",
+        "night_mode":          (
+            f"Aktiv {cfg.night_mode_start}–{cfg.night_mode_end}, alle {cfg.night_mode_interval_minutes} min"
+            if cfg.night_mode_enabled else "Deaktiviert"
+        ),
     }
 
 

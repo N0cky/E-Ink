@@ -245,6 +245,12 @@ Recommended setup for all environments:
 | `TIMEZONE` | IANA timezone, for example `Europe/Berlin` | `Europe/Berlin` |
 | `IDLE_MODULES` | Active idle modules, comma-separated | `` |
 | `IDLE_MODULE_ROTATION_SECONDS` | Rotation interval between idle modules | `120` |
+| `NIGHT_MODE_ENABLED` | Enable reduced refreshes during a local night window | `false` |
+| `NIGHT_MODE_START` | Local start time for night mode (`HH:MM`) | `23:00` |
+| `NIGHT_MODE_END` | Local end time for night mode (`HH:MM`) | `07:00` |
+| `NIGHT_MODE_INTERVAL_MINUTES` | Idle refresh interval during night mode | `15` |
+| `NIGHT_MODE_IDLE_BEHAVIOR` | `rotate` or `fixed` idle behavior at night | `rotate` |
+| `NIGHT_MODE_FIXED_MODULE` | Idle module to pin during night mode when behavior is `fixed` | `` |
 | `PLEX_BASE_URL` | Plex server URL | `` |
 | `PLEX_TOKEN` | Plex API token | `` |
 
@@ -532,6 +538,7 @@ The sketch in `esp32/PlexEInk/` connects to the server over Wi-Fi, periodically 
 
 - Plex uses its own wake logic depending on playback state
 - Idle modules use `IDLE_MODULE_ROTATION_SECONDS` by default
+- Night mode can temporarily slow idle refreshes and optionally pin a single idle module within a local time window
 - Individual modules can provide their own wake recommendation for `/meta.json` through a hook
 
 This is especially relevant for `Gallery` when a custom image change interval is enabled.

@@ -13,6 +13,7 @@ import json as _json
 import time
 import threading
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask, redirect, render_template, request, send_file, jsonify, url_for
 from PIL import Image, ImageDraw
@@ -66,6 +67,87 @@ _runtime_started = False
 _worker_thread: threading.Thread | None = None
 
 
+def _get_local_now() -> datetime:
+    cfg = get_cfg()
+    try:
+        tz = ZoneInfo(cfg.timezone)
+    except ZoneInfoNotFoundError:
+        tz = timezone.utc
+    return datetime.now(tz)
+
+
+def _get_night_mode_state(now_local: datetime | None = None) -> dict[str, int | bool | str]:
+    cfg = get_cfg()
+    if not cfg.night_mode_enabled or cfg.night_mode_start_minutes == cfg.night_mode_end_minutes:
+        return {"active": False, "seconds_until_end": 0, "label": ""}
+
+    now_local = now_local or _get_local_now()
+    current_minutes = now_local.hour * 60 + now_local.minute
+    start_minutes = cfg.night_mode_start_minutes
+    end_minutes = cfg.night_mode_end_minutes
+
+    if start_minutes < end_minutes:
+        active = start_minutes <= current_minutes < end_minutes
+        end_day_offset = 0
+    else:
+        active = current_minutes >= start_minutes or current_minutes < end_minutes
+        end_day_offset = 1 if current_minutes >= start_minutes else 0
+
+    if not active:
+        return {"active": False, "seconds_until_end": 0, "label": f"{cfg.night_mode_start}–{cfg.night_mode_end}"}
+
+    end_time = now_local.replace(
+        hour=end_minutes // 60,
+        minute=end_minutes % 60,
+        second=0,
+        microsecond=0,
+    )
+    if end_day_offset:
+        from datetime import timedelta
+        end_time = end_time + timedelta(days=1)
+
+    seconds_until_end = max(1, int((end_time - now_local).total_seconds()))
+    return {
+        "active": True,
+        "seconds_until_end": seconds_until_end,
+        "label": f"{cfg.night_mode_start}–{cfg.night_mode_end}",
+    }
+
+
+def _apply_night_mode_interval(base_seconds: int, base_reason: str) -> tuple[int, str]:
+    cfg = get_cfg()
+    night_state = _get_night_mode_state()
+    if not night_state["active"]:
+        return max(10, int(base_seconds)), base_reason
+
+    effective = max(10, max(int(base_seconds), int(cfg.night_mode_interval_seconds)))
+    seconds_until_end = int(night_state["seconds_until_end"])
+    if seconds_until_end < effective:
+        return max(10, seconds_until_end), f"Nachtmodus endet um {cfg.night_mode_end} – pünktlicher Wechsel in den Tagesmodus"
+    return effective, f"Nachtmodus aktiv ({night_state['label']}) – reduziertes Update-Intervall"
+
+
+def _get_effective_idle_modules(env: dict[str, str]) -> tuple[list, int]:
+    cfg = get_cfg()
+    enabled_idle = [m for m in _registry.get_idle_modules() if m.is_enabled(env)]
+    if not enabled_idle:
+        return [], max(cfg.idle_module_rotation_seconds, 1)
+
+    night_state = _get_night_mode_state()
+    if not night_state["active"]:
+        return enabled_idle, max(cfg.idle_module_rotation_seconds, 1)
+
+    if cfg.night_mode_idle_behavior == "fixed" and cfg.night_mode_fixed_module_id:
+        fixed = next((m for m in enabled_idle if m.MODULE_ID == cfg.night_mode_fixed_module_id), None)
+        if fixed is not None:
+            return [fixed], max(cfg.night_mode_interval_seconds, 1)
+        log.warning(
+            f"Nachtmodus: festes Modul '{cfg.night_mode_fixed_module_id}' ist nicht aktiv, nutze normale Idle-Rotation"
+        )
+
+    return enabled_idle, max(cfg.night_mode_interval_seconds, 1)
+
+
 def _compute_image_hash() -> str:
     cfg  = get_cfg()
     path = CURRENT_BMP_PATH if cfg.output_format == "bmp" else CURRENT_IMAGE_PATH
@@ -80,30 +162,31 @@ def _compute_image_hash() -> str:
 
 def _suggest_next_wake(state: str, media_type: str) -> tuple[int, str]:
     cfg = get_cfg()
+    if media_type == "plex":
+        state_parts = state.split(":")
+        player_state = state_parts[2] if len(state_parts) >= 3 else (state_parts[1] if len(state_parts) >= 2 else "unknown")
+        if player_state in ("playing", "buffering"):
+            return cfg.refresh_interval, f"Plex {player_state} – Refresh-Intervall"
+        if player_state == "paused":
+            return cfg.refresh_interval * 3, "Plex pausiert – verlangsamter Refresh"
+        return cfg.refresh_interval * 5, "Plex unbekannt/inaktiv – konservativer Fallback"
+
     if state in ("idle", "__no_content__"):
-        return cfg.idle_module_rotation_seconds, "Kein aktiver Inhalt – Idle-Rotation"
+        return _apply_night_mode_interval(cfg.idle_module_rotation_seconds, "Kein aktiver Inhalt – Idle-Rotation")
 
-    if media_type != "plex":
-        mod = _registry.get_module_by_id(media_type)
-        if mod is not None:
-            env = get_settings_values()
-            info = mod.get_next_wake_info(env, state)
-            if info is not None:
-                seconds = max(10, int(info.get("seconds", cfg.idle_module_rotation_seconds)))
-                reason = str(info.get("reason", f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")).strip()
-                return seconds, reason
-            custom = mod.get_next_wake_seconds(env, state)
-            if custom is not None:
-                return max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall"
-        return cfg.idle_module_rotation_seconds, "Idle-Modul – Standard-Rotation"
+    mod = _registry.get_module_by_id(media_type)
+    if mod is not None:
+        env = get_settings_values()
+        info = mod.get_next_wake_info(env, state)
+        if info is not None:
+            seconds = max(10, int(info.get("seconds", cfg.idle_module_rotation_seconds)))
+            reason = str(info.get("reason", f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")).strip()
+            return _apply_night_mode_interval(seconds, reason)
+        custom = mod.get_next_wake_seconds(env, state)
+        if custom is not None:
+            return _apply_night_mode_interval(max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")
 
-    state_parts = state.split(":")
-    player_state = state_parts[2] if len(state_parts) >= 3 else (state_parts[1] if len(state_parts) >= 2 else "unknown")
-    if player_state in ("playing", "buffering"):
-        return cfg.refresh_interval, f"Plex {player_state} – Refresh-Intervall"
-    if player_state == "paused":
-        return cfg.refresh_interval * 3, "Plex pausiert – verlangsamter Refresh"
-    return cfg.refresh_interval * 5, "Plex unbekannt/inaktiv – konservativer Fallback"
+    return _apply_night_mode_interval(cfg.idle_module_rotation_seconds, "Idle-Modul – Standard-Rotation")
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +305,8 @@ def render_if_changed(last_state_key: str | None) -> str:
         return state_key
 
     # ── 2. Idle-Module in Rotation (MODULE_PRIORITY >= 10) ───────────────────
-    enabled_idle = [m for m in _registry.get_idle_modules() if m.is_enabled(env)]
+    enabled_idle, rotation_seconds = _get_effective_idle_modules(env)
     if enabled_idle:
-        rotation_seconds = max(cfg.idle_module_rotation_seconds, 1)
         slot = int(time.time() // rotation_seconds)
 
         for offset in range(len(enabled_idle)):
@@ -273,7 +355,15 @@ def _get_background_poll_seconds() -> int:
         if custom is not None:
             candidates.append(max(1, int(custom)))
 
-    return min(candidates)
+    base_poll = min(candidates)
+    if _esp32_state.get("media_type") == "plex":
+        return base_poll
+
+    night_state = _get_night_mode_state()
+    if not night_state["active"]:
+        return base_poll
+
+    return min(base_poll, max(1, int(night_state["seconds_until_end"])))
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +402,8 @@ def _build_settings_sections() -> list[dict]:
         field = dict(f)
         if field["name"] == "IDLE_MODULES" and not field.get("options"):
             field = dict(field, options=idle_opts)
+        if field["name"] == "NIGHT_MODE_FIXED_MODULE" and not field.get("options"):
+            field = dict(field, options=[("", "– Bitte wählen –"), *idle_opts])
         framework_fields.append(field)
 
     sections = [
@@ -667,6 +759,13 @@ def log_startup_config() -> None:
     log.info(f"REFRESH_INTERVAL     = {cfg.refresh_interval}s")
     log.info(f"IDLE_MODULES         = {', '.join(cfg.idle_module_ids) or 'keine'}")
     log.info(f"IDLE_ROTATION        = {cfg.idle_module_rotation_seconds}s")
+    log.info(
+        "NIGHT_MODE           = %s",
+        (
+            f"{cfg.night_mode_start}-{cfg.night_mode_end} / {cfg.night_mode_interval_minutes}min / {cfg.night_mode_idle_behavior}"
+            if cfg.night_mode_enabled else "deaktiviert"
+        ),
+    )
     env = get_settings_values()
     log.info(f"PLEX_BASE_URL        = {env.get('PLEX_BASE_URL', '')}")
     log.info(f"PLEX_TOKEN gesetzt   = {bool(env.get('PLEX_TOKEN', ''))}")

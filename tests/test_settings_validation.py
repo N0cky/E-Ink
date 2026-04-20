@@ -91,6 +91,29 @@ class SettingsValidationFlowTest(unittest.TestCase):
             apply_cfg.assert_called_once()
             render_image.assert_called_once()
 
+    def test_night_mode_fixed_module_must_be_active_idle_module(self) -> None:
+        form_data = self._build_valid_form_data()
+        form_data["NIGHT_MODE_ENABLED"] = "true"
+        form_data["NIGHT_MODE_IDLE_BEHAVIOR"] = "fixed"
+        form_data["NIGHT_MODE_FIXED_MODULE"] = "gallery"
+        form_data["IDLE_MODULES"] = "dwd_weather,tagesschau"
+
+        with (
+            patch("app.server.write_env_settings") as write_env,
+            patch("app.server.apply_runtime_config") as apply_cfg,
+            patch("app.server.render_image") as render_image,
+        ):
+            response = self.client.post("/settings", data=form_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "Festes Nachtmodul: Das Modul muss auch in den aktiven Idle-Modulen enthalten sein.",
+            response.get_data(as_text=True),
+        )
+        write_env.assert_not_called()
+        apply_cfg.assert_not_called()
+        render_image.assert_not_called()
+
     def test_meta_json_uses_gallery_custom_next_wake(self) -> None:
         with patch.dict(
             server_module._esp32_state,
@@ -108,6 +131,9 @@ class SettingsValidationFlowTest(unittest.TestCase):
                 "GALLERY_INTERVAL_MODE": "custom",
                 "GALLERY_INTERVAL_SECONDS": "420",
             },
+        ), patch(
+            "app.server._get_night_mode_state",
+            return_value={"active": False, "seconds_until_end": 0, "label": ""},
         ):
             response = self.client.get("/meta.json")
 
@@ -125,8 +151,58 @@ class SettingsValidationFlowTest(unittest.TestCase):
             patch("app.server.get_settings_values", return_value={}),
             patch("app.server.get_cfg", return_value=SimpleNamespace(refresh_interval=60)),
             patch("app.server._registry.get_modules", return_value=[gallery]),
+            patch("app.server._get_night_mode_state", return_value={"active": False, "seconds_until_end": 0, "label": ""}),
         ):
             self.assertEqual(server_module._get_background_poll_seconds(), 30)
+
+    def test_night_mode_clamps_next_wake_to_mode_end(self) -> None:
+        cfg = SimpleNamespace(
+            idle_module_rotation_seconds=180,
+            night_mode_interval_seconds=900,
+            night_mode_end="07:00",
+            refresh_interval=60,
+        )
+        with (
+            patch("app.server.get_cfg", return_value=cfg),
+            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 120, "label": "23:00–07:00"}),
+        ):
+            seconds, reason = server_module._suggest_next_wake("__no_content__", "idle")
+
+        self.assertEqual(seconds, 120)
+        self.assertIn("07:00", reason)
+
+    def test_plex_next_wake_ignores_night_mode(self) -> None:
+        cfg = SimpleNamespace(
+            refresh_interval=60,
+            idle_module_rotation_seconds=180,
+        )
+        with (
+            patch("app.server.get_cfg", return_value=cfg),
+            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 120, "label": "23:00–07:00"}),
+        ):
+            seconds, reason = server_module._suggest_next_wake("plex:123:playing:slot", "plex")
+
+        self.assertEqual(seconds, 60)
+        self.assertIn("Plex playing", reason)
+
+    def test_night_mode_can_pin_a_single_idle_module(self) -> None:
+        dwd = SimpleNamespace(MODULE_ID="dwd_weather", is_enabled=lambda env: True)
+        tagesschau = SimpleNamespace(MODULE_ID="tagesschau", is_enabled=lambda env: True)
+        cfg = SimpleNamespace(
+            idle_module_rotation_seconds=180,
+            night_mode_idle_behavior="fixed",
+            night_mode_fixed_module_id="tagesschau",
+            night_mode_interval_seconds=900,
+        )
+        with (
+            patch("app.server.get_cfg", return_value=cfg),
+            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 3600, "label": "23:00–07:00"}),
+            patch("app.server._registry.get_idle_modules", return_value=[dwd, tagesschau]),
+        ):
+            modules, rotation = server_module._get_effective_idle_modules({})
+
+        self.assertEqual([m.MODULE_ID for m in modules], ["tagesschau"])
+        self.assertEqual(rotation, 900)
 
     def test_ensure_runtime_started_is_idempotent(self) -> None:
         fake_thread = SimpleNamespace(start=lambda: None)
