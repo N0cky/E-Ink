@@ -1,0 +1,3 @@
+config.private.h
+.arduino/
+build/

@@ -1,0 +1,13 @@
+services:
+  pleximagee-ink:
+    build: .
+    container_name: pleximagee-ink
+    init: true
+    ports:
+      - "${PORT:-8787}:8787"
+    env_file:
+      - .env
+    volumes:
+      - ./data/output:/app/data/output
+      - ./logs:/app/logs
+    restart: unless-stopped

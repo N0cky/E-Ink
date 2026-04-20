@@ -1,0 +1,127 @@
+"""
+Zentrales Logging für PlexImageE-Ink.
+
+Verwendung in jedem Modul:
+    from app.logger import get_logger
+    log = get_logger(__name__)
+
+Log-Dateien liegen in <project_root>/logs/ (tägl. Rotation, 7 Tage).
+Format der Dateien: JSON-Lines (eine JSON-Zeile pro Eintrag) – für einfaches
+Parsen durch den /api/logs-Endpunkt.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import logging.handlers
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Pfade
+# ---------------------------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOGS_DIR     = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOGS_DIR / "app.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# Formatter
+# ---------------------------------------------------------------------------
+
+class _JsonLineFormatter(logging.Formatter):
+    """Serialisiert jeden Log-Eintrag als einzelne JSON-Zeile (UTF-8)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        msg = record.getMessage()
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            msg = f"{msg}\n{record.exc_text}"
+
+        # Komponentenname kürzen
+        name = record.name
+        if name.startswith("plex_ink."):
+            name = name[len("plex_ink."):]
+        elif name == "plex_ink":
+            name = "server"
+
+        return json.dumps({
+            "ts":    datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "name":  name,
+            "msg":   msg,
+        }, ensure_ascii=False)
+
+
+_CONSOLE_FMT = logging.Formatter(
+    "%(asctime)s  %(levelname)-8s  %(name)-22s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+
+# ---------------------------------------------------------------------------
+# Setup (einmalig beim ersten Import)
+# ---------------------------------------------------------------------------
+
+def _setup() -> logging.Logger:
+    root = logging.getLogger("plex_ink")
+    if root.handlers:
+        return root          # bereits initialisiert (z. B. durch Auto-Reload)
+
+    root.setLevel(logging.DEBUG)
+
+    # Datei-Handler: JSON-Lines, täglich rotiert, 7 Tage Aufbewahrung
+    fh = logging.handlers.TimedRotatingFileHandler(
+        LOG_FILE,
+        when="midnight",
+        backupCount=7,
+        encoding="utf-8",
+        utc=False,
+    )
+    fh.setFormatter(_JsonLineFormatter())
+    fh.setLevel(logging.DEBUG)
+    root.addHandler(fh)
+
+    # Konsolen-Handler: menschenlesbar
+    ch = logging.StreamHandler()
+    ch.setFormatter(_CONSOLE_FMT)
+    ch.setLevel(logging.DEBUG)
+    root.addHandler(ch)
+
+    # Flask/Werkzeug-Logs nicht doppelt ausgeben
+    logging.getLogger("werkzeug").propagate = False
+
+    return root
+
+
+_root_logger = _setup()
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def get_logger(name: str) -> logging.Logger:
+    """
+    Gibt einen benannten Child-Logger zurück.
+
+    Empfohlene Verwendung:
+        from app.logger import get_logger
+        log = get_logger(__name__)
+
+    Der Modul-Pfad ``app.foo.bar`` wird automatisch zu ``plex_ink.foo.bar``
+    umbenannt, damit alle Einträge unter dem ``plex_ink``-Baum landen.
+    """
+    if name.startswith("app."):
+        clean = "plex_ink." + name[4:]
+    elif not name.startswith("plex_ink"):
+        clean = f"plex_ink.{name}"
+    else:
+        clean = name
+    return logging.getLogger(clean)

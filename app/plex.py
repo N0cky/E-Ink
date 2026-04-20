@@ -1,0 +1,191 @@
+"""
+Plex-API-Zugriff, Session-Parsing und Artwork-Helpers.
+"""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+import requests
+from PIL import Image
+
+from app.config import (
+    get_csv_setting,
+    get_setting,
+    parse_episode_artwork_source,
+    parse_movie_artwork_source,
+    parse_session_priority,
+    ARTWORK_FIELD_ORDERS,
+    PLAYBACK_LABELS,
+    PLAYER_STATE_PRIORITY,
+    VIDEO_SESSION_FIELDS,
+    TRACK_SESSION_FIELDS,
+)
+from app.logger import get_logger
+
+# HTTP-Client und download_image werden zentral in app.http_client verwaltet.
+# Hier re-exportiert für Backward-Kompatibilität.
+from app.http_client import HTTP_SESSION, download_image  # noqa: F401
+
+log = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# XML-Session-Parsing
+# ---------------------------------------------------------------------------
+
+def parse_xml_session(element, field_defaults: dict[str, str]) -> dict:
+    return {name: element.attrib.get(name, default) for name, default in field_defaults.items()}
+
+
+def parse_video_session(video) -> dict:
+    return parse_xml_session(video, VIDEO_SESSION_FIELDS)
+
+
+def parse_track_session(track) -> dict:
+    return parse_xml_session(track, TRACK_SESSION_FIELDS)
+
+
+def extract_player_state(element) -> str:
+    player_node = element.find("Player")
+    if player_node is None:
+        return "unknown"
+    return (player_node.attrib.get("state") or "unknown").strip().lower()
+
+
+def get_playback_label(player_state: str, media_label: str = "") -> str:
+    base_label = PLAYBACK_LABELS.get(player_state, "Unbekannter Status")
+    return f"{base_label} · {media_label}" if media_label else base_label
+
+
+def extract_session_user(element) -> str:
+    for tag in ("User", "Account"):
+        node = element.find(tag)
+        if node is not None:
+            title = (node.attrib.get("title") or "").strip()
+            if title:
+                return title
+    return ""
+
+
+def is_allowed_user(username: str) -> bool:
+    allowed_plex_users = frozenset(u.strip().lower() for u in get_csv_setting("ALLOWED_PLEX_USERS"))
+    if not allowed_plex_users:
+        return True
+    return username.strip().lower() in allowed_plex_users
+
+
+# ---------------------------------------------------------------------------
+# Plex-API
+# ---------------------------------------------------------------------------
+
+def plex_get(path: str, params: dict | None = None) -> requests.Response:
+    plex_base_url = get_setting("PLEX_BASE_URL", "").rstrip("/")
+    plex_token = get_setting("PLEX_TOKEN", "")
+    if not plex_base_url or not plex_token:
+        raise RuntimeError("PLEX_BASE_URL oder PLEX_TOKEN fehlt")
+    query_params = dict(params or {})
+    query_params["X-Plex-Token"] = plex_token
+    url = f"{plex_base_url}{path}"
+    response = HTTP_SESSION.get(url, params=query_params, timeout=20)
+    response.raise_for_status()
+    return response
+
+
+def create_session_from_element(element, parser) -> dict:
+    session = parser(element)
+    session["user"] = extract_session_user(element)
+    session["playerState"] = extract_player_state(element)
+    return session
+
+
+def collect_sessions(root) -> list[dict]:
+    sessions = []
+    for video in root.findall(".//Video"):
+        if is_allowed_user(extract_session_user(video)):
+            sessions.append(create_session_from_element(video, parse_video_session))
+    for track in root.findall(".//Track"):
+        if is_allowed_user(extract_session_user(track)):
+            sessions.append(create_session_from_element(track, parse_track_session))
+    return sessions
+
+
+def select_preferred_session(sessions: list[dict]) -> dict | None:
+    if not sessions:
+        return None
+    session_priority = parse_session_priority(get_setting("SESSION_PRIORITY", "movie,episode,track"))
+
+    # Nur Medientypen zulassen, die explizit in session_priority aktiviert sind.
+    # Nicht enthaltene Typen sind deaktiviert – sie werden komplett ignoriert.
+    # session_priority enthält "movie", "episode", "track" – das sind die
+    # type-Werte aus dem Plex-XML, nicht mediaCategory ("video" / "music").
+    allowed = set(session_priority)
+    sessions = [s for s in sessions if s.get("type") in allowed]
+    if not sessions:
+        return None
+
+    type_priority = {media_type: i for i, media_type in enumerate(session_priority)}
+
+    def sort_key(session: dict) -> tuple[int, int]:
+        return (
+            PLAYER_STATE_PRIORITY.get(session.get("playerState", "unknown"), PLAYER_STATE_PRIORITY["unknown"]),
+            type_priority.get(session.get("type", ""), len(session_priority)),
+        )
+
+    return min(sessions, key=sort_key)
+
+
+def get_active_session() -> dict | None:
+    try:
+        resp = plex_get("/status/sessions")
+        root = ET.fromstring(resp.text)
+        return select_preferred_session(collect_sessions(root))
+    except Exception as exc:
+        log.error(f"get_active_session: {exc}", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Artwork-Helpers
+# ---------------------------------------------------------------------------
+
+def build_plex_image_url(image_path: str) -> str | None:
+    if not image_path:
+        return None
+    plex_base_url = get_setting("PLEX_BASE_URL", "").rstrip("/")
+    plex_token = get_setting("PLEX_TOKEN", "")
+    return f"{plex_base_url}{image_path}?X-Plex-Token={plex_token}"
+
+
+def get_artwork_source_config(media_type: str) -> str:
+    if media_type == "movie":
+        return parse_movie_artwork_source(get_setting("MOVIE_ARTWORK_SOURCE", "movie_thumb"))
+    if media_type == "episode":
+        return parse_episode_artwork_source(get_setting("EPISODE_ARTWORK_SOURCE", "series_thumb"))
+    return "auto"
+
+
+def get_artwork_candidates(session: dict) -> list[str]:
+    media_type = session.get("type", "")
+    source_config = get_artwork_source_config(media_type)
+    source_orders = ARTWORK_FIELD_ORDERS.get(media_type, ARTWORK_FIELD_ORDERS["default"])
+    field_order = source_orders.get(source_config, source_orders["auto"])
+    candidates = []
+    for field_name in field_order:
+        value = session.get(field_name, "")
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
+# download_image ist in app.http_client definiert und oben re-exportiert.
+
+
+def download_session_artwork(session: dict | None) -> Image.Image | None:
+    if not session:
+        return None
+    for image_path in get_artwork_candidates(session):
+        image = download_image(build_plex_image_url(image_path))
+        if image is not None:
+            return image
+    return None

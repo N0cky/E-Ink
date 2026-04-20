@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.idea
+.vscode
+.claude
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+tests
+logs
+data/output
+.env
+bin
+dotenv
+python_dotenv-*.dist-info

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}PlexImageE-Ink{% endblock %}</title>
+    <script>
+        (function () {
+            var t = localStorage.getItem('plexeink-ui-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <style>
+        [data-theme="dark"] {
+            --bg:            #0f0f0e;
+            --surface:       #1b1b1a;
+            --surface2:      #222221;
+            --surface3:      #2a2a28;
+            --border:        rgba(255,255,255,0.07);
+            --border-strong: rgba(255,255,255,0.13);
+            --text:          #f0ede8;
+            --text-soft:     #c8c3bb;
+            --muted:         #7d756c;
+            --accent:        #14b8a6;
+            --accent-hover:  #0d9488;
+            --accent-dim:    rgba(20,184,166,0.12);
+            --chip-bg:       rgba(255,255,255,0.05);
+            --ok:            #4ade80;
+            --warn:          #fbbf24;
+            --danger:        #f87171;
+            --shadow-page:   0 40px 120px rgba(0,0,0,0.7);
+        }
+        [data-theme="light"] {
+            --bg:            #eeeae4;
+            --surface:       #f8f5f0;
+            --surface2:      #ffffff;
+            --surface3:      #f0ece6;
+            --border:        rgba(40,35,28,0.10);
+            --border-strong: rgba(40,35,28,0.18);
+            --text:          #18140e;
+            --text-soft:     #4a4038;
+            --muted:         #6e655c;
+            --accent:        #0f766e;
+            --accent-hover:  #0e6560;
+            --accent-dim:    rgba(15,118,110,0.10);
+            --chip-bg:       rgba(0,0,0,0.04);
+            --ok:            #15803d;
+            --warn:          #b45309;
+            --danger:        #b91c1c;
+            --shadow-page:   0 24px 80px rgba(30,22,12,0.15);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { font-size: 16px; scroll-behavior: smooth; }
+        body {
+            font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px 16px 60px;
+            transition: background 0.25s, color 0.25s;
+        }
+        a { color: inherit; }
+
+        .page-shell {
+            max-width: {% block page_width %}1260px{% endblock %};
+            margin: 0 auto;
+            background: var(--surface);
+            border: 1px solid var(--border-strong);
+            border-radius: 28px;
+            box-shadow: var(--shadow-page);
+            overflow: hidden;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 18px 28px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface2);
+            flex-wrap: wrap;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            min-width: 0;
+        }
+        .logo-icon { font-size: 20px; line-height: 1; }
+        .logo-name {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text);
+        }
+        .logo-dot { color: var(--accent); }
+        .logo-sub {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+        .topbar-center {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            min-width: 280px;
+            flex-wrap: wrap;
+        }
+        .nav-links {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--chip-bg);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .nav-link {
+            text-decoration: none;
+            color: var(--text-soft);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 14px;
+            border-radius: 999px;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            border: 1px solid transparent;
+        }
+        .nav-link:hover {
+            color: var(--accent);
+            background: var(--accent-dim);
+        }
+        .nav-link.active {
+            color: var(--accent);
+            background: var(--accent-dim);
+            border-color: var(--border-strong);
+        }
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--border-strong);
+            border-radius: 999px;
+            background: var(--chip-bg);
+            color: var(--text);
+            font-size: 13px;
+            padding: 7px 16px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            font-family: inherit;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .theme-toggle:hover {
+            background: var(--accent-dim);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .theme-toggle-icon { font-size: 15px; }
+        .page-content {
+            padding: 28px;
+        }
+        .section-label {
+            font-size: 10.5px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+        .surface-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+        }
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: var(--text);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+        }
+        .section-title::before {
+            content: "";
+            display: block;
+            width: 4px;
+            height: 18px;
+            background: var(--accent);
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 920px) {
+            .topbar-center {
+                order: 3;
+                width: 100%;
+            }
+        }
+        @media (max-width: 600px) {
+            body { padding: 8px 8px 32px; }
+            .topbar { padding: 14px 16px; }
+            .page-content { padding: 18px 16px; }
+            .nav-links { width: 100%; }
+        }
+
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+
+<div class="page-shell">
+    <header class="topbar">
+        <div class="topbar-left">
+            <span class="logo-icon">🖼</span>
+            <span class="logo-name">PlexImage<span class="logo-dot">E-Ink</span></span>
+            <span class="logo-sub">{% block page_subtitle %}{% endblock %}</span>
+        </div>
+
+        <div class="topbar-center">
+            <nav class="nav-links" aria-label="Hauptnavigation">
+                <a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
+                <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">Einstellungen</a>
+                <a href="/logs" class="nav-link {% if active_page == 'logs' %}active{% endif %}">Logs</a>
+            </nav>
+            {% block topbar_center %}{% endblock %}
+        </div>
+
+        <div class="topbar-right">
+            {% block topbar_right %}{% endblock %}
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="Darstellung wechseln" title="Hell/Dunkel-Modus für das gesamte Web-UI umschalten">
+                <span class="theme-toggle-icon" id="themeIcon">🌙</span>
+                <span id="themeLabel">Dark</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="page-content">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<script>
+(function () {
+    var html = document.documentElement;
+    var btn = document.getElementById('themeToggle');
+    var icon = document.getElementById('themeIcon');
+    var label = document.getElementById('themeLabel');
+    var THEMES = {
+        dark: { icon: '🌙', label: 'Dark' },
+        light: { icon: '☀️', label: 'Light' }
+    };
+    function applyTheme(t) {
+        html.setAttribute('data-theme', t);
+        icon.textContent = (THEMES[t] || THEMES.dark).icon;
+        label.textContent = (THEMES[t] || THEMES.dark).label;
+        localStorage.setItem('plexeink-ui-theme', t);
+    }
+    applyTheme(html.getAttribute('data-theme') || 'dark');
+    btn.addEventListener('click', function () {
+        var cur = html.getAttribute('data-theme') || 'dark';
+        applyTheme(cur === 'dark' ? 'light' : 'dark');
+    });
+})();
+</script>
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>
