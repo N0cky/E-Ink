@@ -559,7 +559,8 @@ def draw_moon_disc(img: Image.Image, cx: int, cy: int, r: int,
 # Stat-Panels
 # ---------------------------------------------------------------------------
 
-def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font, pal: dict):
+def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font, pal: dict,
+                    load_font=None):
     apply_glass_panel(img, bounds, radius=26,
                       tint=pal["stat_glass_tint"],
                       outline=pal["stat_glass_outline"],
@@ -580,18 +581,17 @@ def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font
     lines = value.split("\n")
     if len(lines) > 1:
         # Zweizeiliger Wert (z. B. Wind + Böen): beide Zeilen mit fester Schriftgröße
-        if hasattr(value_font, "path"):
-            line_font = ImageFont.truetype(value_font.path, 20)
-        else:
-            line_font = value_font
+        line_font = load_font(20, True) if load_font else value_font
         for i, line in enumerate(lines):
             draw.text((value_left, value_top + i * 26), line,
                       font=line_font, fill=pal["stat_value"])
     else:
         chosen_font = value_font
-        if hasattr(value_font, "path") and hasattr(value_font, "size"):
-            for size in range(getattr(value_font, "size", 32), 20, -2):
-                candidate = ImageFont.truetype(value_font.path, size)
+        if load_font:
+            # Schriftgröße schrittweise verkleinern bis der Text passt
+            start_size = getattr(value_font, "size", 28)
+            for size in range(start_size, 19, -2):
+                candidate = load_font(size, True)
                 text_bbox = draw.textbbox((0, 0), value, font=candidate)
                 if (text_bbox[2] - text_bbox[0]) <= max_value_width:
                     chosen_font = candidate
@@ -1223,7 +1223,8 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     for idx, (title, value, icon_name) in enumerate(stat_defs):
         sx = panel_left + 42 + idx * (stat_w + stat_gap)
         draw_stat_panel(img, (sx, stat_top, sx + stat_w, stat_top + stat_h),
-                        title, value, icon_name, font_label, font_value, pal)
+                        title, value, icon_name, font_label, font_value, pal,
+                        load_font=context.load_font)
 
     stat_bottom = stat_top + stat_h
 
