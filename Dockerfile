@@ -11,8 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # gosu: sicherer Benutzerwechsel im Entrypoint (root → appuser nach Volume-chown)
+# fonts-dejavu-core: TrueType-Fonts für Pillow-Rendering (load_font() auf Linux)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu \
+    && apt-get install -y --no-install-recommends gosu fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 RUN adduser --disabled-password --gecos "" appuser

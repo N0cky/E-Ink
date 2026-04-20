@@ -655,10 +655,19 @@ def load_font(size: int, is_bold: bool = False):
             ["C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/calibri.ttf", "C:/Windows/Fonts/segoeui.ttf"]
         )
     else:
+        # fonts-dejavu-core (Debian/Ubuntu) oder ttf-dejavu (Arch)
         candidates = (
-            ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"]
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+            ]
             if is_bold else
-            ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf"]
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            ]
         )
     for path in candidates:
         if os.path.exists(path):
@@ -666,6 +675,13 @@ def load_font(size: int, is_bold: bool = False):
                 return ImageFont.truetype(path, size)
             except Exception:
                 pass
+    # Kein TrueType-Font gefunden – Bitmap-Fallback (kein anchor-Support!)
+    import logging as _logging
+    _logging.getLogger("plex_ink.config").warning(
+        f"load_font({size}, bold={is_bold}): kein TrueType-Font gefunden "
+        f"(Kandidaten: {candidates}). Bitmap-Fallback aktiv – "
+        f"anchor-Parameter in draw.text() funktioniert NICHT."
+    )
     return ImageFont.load_default()
 
 
