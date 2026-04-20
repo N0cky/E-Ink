@@ -50,7 +50,7 @@ SETTINGS_FIELDS: list[dict] = [
         "type":        "text",
         "wide":        True,
         "default":     "",
-        "placeholder": "Tobias B, Gast",
+        "placeholder": "User 1, Gast",
         "help":        "Kommagetrennte Liste erlaubter Benutzernamen. Leer = alle User.",
     },
     {
