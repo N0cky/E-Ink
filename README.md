@@ -23,16 +23,16 @@ Supported output modes:
 
 ## Features
 
-- **Plex-Integration** – zeigt automatisch laufende Filme, Serien und Musik mit Cover-Art, Metadaten und Fortschrittsbalken
-- **DWD-Wetter** – aktuelles Wetter, Stundenverlauf, Mehrtagesprognose, UV-Index und Pollenflug (Deutscher Wetterdienst, kostenfrei)
-- **Tagesschau-Nachrichten** – aktuelle Nachrichten mit Thumbnail und Teasertext
-- **Gallery** – lokale Bildordner als Idle-Modul mit Zufallsauswahl, Blur-Hintergrund und optionalem Overlay
-- **Modulares System** – neue Inhalte als eigenständige Module hinzufügen, ohne den Kern anzufassen
-- **Dark- und Light-Theme** – optimiert für OLED-ähnliche Displays und das Waveshare Spectra-6-Farbdisplay
-- **Weboberfläche** – alle Einstellungen über den Browser, Live-Vorschau, Log-Viewer
-- **Docker-Ready** – Container-Start via `Dockerfile` und `docker-compose.yml`
-- **WSGI-Ready** – produktiver Start im Container über Gunicorn mit sauberem Runtime-Bootstrap
-- **GitHub-Ready** – Non-Commercial-Lizenz, CI-Workflow und saubere Repo-Dateien
+- **Plex integration** – automatically shows active movies, TV episodes, and music with cover art, metadata, and progress bars
+- **DWD weather** – current conditions, hourly timeline, multi-day forecast, UV index, and pollen data from the German Weather Service
+- **Tagesschau news** – current news cards with thumbnail and teaser text
+- **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
+- **Modular architecture** – add new content sources as standalone modules without touching the core framework
+- **Dark and light themes** – optimized for OLED-like displays and Waveshare Spectra 6 E-Ink panels
+- **Web UI** – browser-based settings, live preview, and log viewer
+- **Docker-ready** – container startup via `Dockerfile` and `docker-compose.yml`
+- **WSGI-ready** – production container startup through Gunicorn with a clean runtime bootstrap
+- **GitHub-ready** – non-commercial license, CI workflow, and cleaned-up repository files
 
 ---
 
@@ -49,11 +49,12 @@ Supported output modes:
 - [Requirements](#requirements)
 - [Runtime Model](#runtime-model)
 - [Docker Deployment](#docker-deployment)
+- [Unraid Deployment](#unraid-deployment)
 - [Configuration](#configuration)
 - [API Endpoints](#api-endpoints)
 - [Project Structure](#project-structure)
-- [Module System](#modul-system)
-- [Create a New Module](#neues-modul-erstellen)
+- [Module System](#module-system)
+- [Create a New Module](#create-a-new-module)
 - [ESP32 Client](#esp32-client)
 - [GitHub](#github)
 - [License](#license)
@@ -61,23 +62,23 @@ Supported output modes:
 ### Local Development
 
 ```bash
-# Repository klonen
-git clone https://github.com/dein-user/PlexImageE-Ink.git
-cd PlexImageE-Ink
+# Clone the repository
+git clone https://github.com/N0cky/E-Ink.git
+cd E-Ink
 
-# Virtuelle Umgebung anlegen und aktivieren
+# Create and activate a virtual environment
 python -m venv .venv
 .venv/Scripts/activate        # Windows
 # source .venv/bin/activate   # Linux / macOS
 
-# Abhängigkeiten installieren
+# Install dependencies
 pip install -r app/requirements.txt
 
-# Konfiguration anlegen
+# Create the config file
 copy .env.example .env              # Windows PowerShell / CMD
 # cp .env.example .env             # Linux / macOS
 
-# Server starten
+# Start the server
 python app/server.py
 ```
 
@@ -98,9 +99,9 @@ The containerized app is also available at `http://localhost:8787`.
 
 ## Requirements
 
-- Python 3.11 oder neuer
+- Python 3.11 or newer
 - pip / venv
-- Optional: ESP32 mit dem mitgelieferten Firmware-Sketch (`esp32/`)
+- Optional: an ESP32 using the included firmware sketch in `esp32/`
 
 ---
 
@@ -121,83 +122,130 @@ This keeps the display logic simple while letting the server handle data fetchin
 
 ## Docker Deployment
 
-### Mit Docker Compose
+### With Docker Compose
 
 ```bash
-# Konfiguration anlegen
+# Create the config file
 copy .env.example .env              # Windows
 # cp .env.example .env             # Linux / macOS
 
-# Container bauen und starten
+# Build and start the container
 docker compose up --build -d
 ```
 
-Danach ist die Weboberfläche unter `http://localhost:8787` erreichbar.
+The web UI is then available at `http://localhost:8787`.
 
-Persistente Verzeichnisse:
+Persistent directories:
 
-- `./data/output` – gerenderte Bilder
-- `./logs` – JSON-Logs
+- `./data/output` – rendered images
+- `./logs` – JSON logs
 
-### Direkt mit Docker
+### Direct Docker Usage
 
 ```bash
 docker build -t pleximagee-ink .
 docker run --rm -p 8787:8787 --env-file .env -v ./data/output:/app/data/output -v ./logs:/app/logs pleximagee-ink
 ```
 
-### Produktionshinweis
+### Production Notes
 
-Der Container startet über Gunicorn:
+The container starts through Gunicorn:
 
 ```bash
 gunicorn --workers 1 --bind 0.0.0.0:8787 wsgi:app
 ```
 
-Es wird bewusst **ein Worker** verwendet. Das Projekt betreibt einen eigenen Background-Worker für Rendering und Modul-Rotation; mehrere Gunicorn-Worker würden sonst mehrere parallele Render-Loops starten.
+The container intentionally uses **one worker**. The project runs its own background worker for rendering and module rotation, so multiple Gunicorn workers would otherwise start multiple parallel render loops.
 
-Für lokale Entwicklung bleibt `python app/server.py` der einfachste Weg. Im Docker-/Produktivbetrieb startet das Projekt über Gunicorn als WSGI-Server.
+For local development, `python app/server.py` remains the simplest path. In Docker or production-like environments, the project should run through Gunicorn as a WSGI server.
+
+---
+
+## Unraid Deployment
+
+The recommended way to use this project on Unraid is a published container image from GitHub Container Registry.
+
+Planned image format:
+
+- `ghcr.io/n0cky/e-ink:latest`
+- `ghcr.io/n0cky/e-ink:0.1.0`
+
+This repository is now prepared for that flow:
+
+- Git tags like `v0.1.0` trigger an automatic Docker publish workflow
+- Images are published to `ghcr.io`
+- Multi-arch builds are prepared for `linux/amd64` and `linux/arm64`
+
+### Unraid Container Settings
+
+Typical Unraid mapping:
+
+- Repository:
+  - `ghcr.io/n0cky/e-ink:latest`
+- Port:
+  - `8787` container -> `8787` host
+- AppData / volumes:
+  - `/mnt/user/appdata/pleximagee-ink/output` -> `/app/data/output`
+  - `/mnt/user/appdata/pleximagee-ink/logs` -> `/app/logs`
+
+For configuration, either:
+
+- pass environment variables directly in Unraid
+- or maintain the values externally and mirror them in the container configuration
+
+### First Release to GHCR
+
+Once the GitHub repository exists and your first push succeeded:
+
+```bash
+git tag v0.1.0
+git push origin main --tags
+```
+
+After that, GitHub Actions will build and publish the image automatically.
+
+If you want Unraid to pull the image without GitHub authentication, make sure the published GHCR package is set to `public`.
 
 ---
 
 ## Configuration
 
-Alle Einstellungen können über die Weboberfläche unter `/settings` vorgenommen werden. Alternativ direkt in der `.env`-Datei im Projektstamm.
+All settings can be managed through the web UI at `/settings`, or directly in the `.env` file in the project root.
 
-| Variable | Beschreibung | Standard |
+| Variable | Description | Default |
 |---|---|---|
-| `PORT` | HTTP-Port des Servers | `8787` |
-| `RENDER_WIDTH` | Bildbreite in Pixeln | `1600` |
-| `RENDER_HEIGHT` | Bildhöhe in Pixeln | `1200` |
+| `PORT` | HTTP port for the server | `8787` |
+| `RENDER_WIDTH` | Render width in pixels | `1600` |
+| `RENDER_HEIGHT` | Render height in pixels | `1200` |
 | `DISPLAY_ROTATION` | Rotation: `0`, `90`, `180`, `270` | `0` |
-| `DISPLAY_THEME` | `dark` oder `light` | `dark` |
-| `OUTPUT_FORMAT` | `png` oder `bmp` (Spectra 6) | `png` |
-| `REFRESH_INTERVAL` | Prüfintervall in Sekunden | `60` |
-| `TIMEZONE` | IANA-Zeitzone, z. B. `Europe/Berlin` | `Europe/Berlin` |
-| `IDLE_MODULES` | Aktive Idle-Module, kommagetrennt | `` |
-| `IDLE_MODULE_ROTATION_SECONDS` | Wechselintervall zwischen Idle-Modulen | `120` |
-| `PLEX_BASE_URL` | URL des Plex-Servers | `` |
-| `PLEX_TOKEN` | Plex-API-Token | `` |
+| `DISPLAY_THEME` | `dark` or `light` | `dark` |
+| `OUTPUT_FORMAT` | `png` or `bmp` (Spectra 6) | `png` |
+| `REFRESH_INTERVAL` | Poll interval in seconds | `60` |
+| `TIMEZONE` | IANA timezone, for example `Europe/Berlin` | `Europe/Berlin` |
+| `IDLE_MODULES` | Active idle modules, comma-separated | `` |
+| `IDLE_MODULE_ROTATION_SECONDS` | Rotation interval between idle modules | `120` |
+| `PLEX_BASE_URL` | Plex server URL | `` |
+| `PLEX_TOKEN` | Plex API token | `` |
 
-Modul-spezifische Variablen (DWD-Station, Pollen-Region, Gallery-Pfade, …) werden von den jeweiligen Modulen definiert und ebenfalls über die Weboberfläche verwaltet.
+Module-specific variables such as DWD station, pollen region, or gallery paths are defined by the modules themselves and are also managed through the web UI.
 
 ---
 
 ## API Endpoints
 
-| Endpunkt | Methode | Beschreibung |
+| Endpoint | Method | Description |
 |---|---|---|
-| `/current.png` | GET | Aktuelles Bild als PNG |
-| `/current.bmp` | GET | Aktuelles Bild als BMP (nur wenn `OUTPUT_FORMAT=bmp`) |
-| `/meta.json` | GET | Hash, Format, Status, empfohlene Schlafzeit |
-| `/health` | GET | Health-Check für Docker / Monitoring |
-| `/hash` | GET | MD5-Hash des aktuellen Bildes (plain text) |
-| `/ack` | POST | Empfangsbestätigung vom Display-Client |
-| `/refresh` | POST | Sofortiger Neu-Render |
-| `/webhook` | POST | Plex-Webhook-Empfänger |
-| `/api/status` | GET | Laufzeit-Status inkl. geladener Module |
-| `/api/modules` | GET | Liste aller entdeckten Module |
-| `/api/rescan-modules` | POST | Module neu einlesen (ohne Neustart) |
+| `/current.png` | GET | Current image as PNG |
+| `/current.bmp` | GET | Current image as BMP (only when `OUTPUT_FORMAT=bmp`) |
+| `/meta.json` | GET | Hash, format, status, and suggested sleep interval |
+| `/health` | GET | Health check for Docker and monitoring |
+| `/hash` | GET | MD5 hash of the current image (plain text) |
+| `/ack` | POST | Acknowledgement from the display client |
+| `/refresh` | POST | Force an immediate re-render |
+| `/webhook` | POST | Plex webhook receiver |
+| `/api/status` | GET | Runtime status including loaded modules |
+| `/api/modules` | GET | List of all discovered modules |
+| `/api/rescan-modules` | POST | Reload modules without restarting the server |
 
 ---
 
@@ -207,77 +255,77 @@ Modul-spezifische Variablen (DWD-Station, Pollen-Region, Gallery-Pfade, …) wer
 PlexImageE-Ink/
 │
 ├── app/                        # Framework-Kern
-│   ├── server.py               # Flask-Server, Rendering-Loop, API-Routes
-│   ├── config.py               # Konfiguration, RuntimeConfig, .env-IO
-│   ├── module_base.py          # PlexInkModule – Basisklasse für alle Module
-│   ├── module_registry.py      # Auto-Discovery und Hot-Reload der Module
-│   ├── module_services.py      # Service-Dataclasses für modulare Renderer
-│   ├── http_client.py          # Gemeinsamer HTTP-Client (requests.Session)
-│   ├── plex.py                 # Plex-API-Client (Session-Parsing, Artwork)
-│   ├── image_rendering.py      # Shared Rendering-Utilities
-│   └── data_sources/           # Backward-Compat-Stubs (zeigen auf modules/)
+│   ├── server.py               # Flask server, render loop, and API routes
+│   ├── config.py               # Configuration, RuntimeConfig, and .env I/O
+│   ├── module_base.py          # PlexInkModule base class for all modules
+│   ├── module_registry.py      # Module auto-discovery and hot reload
+│   ├── module_services.py      # Service dataclasses for modular renderers
+│   ├── http_client.py          # Shared HTTP client (requests.Session)
+│   ├── plex.py                 # Plex API client (session parsing, artwork)
+│   ├── image_rendering.py      # Shared rendering utilities
+│   └── data_sources/           # Backward-compat stubs pointing to modules/
 │
-├── modules/                    # Module – vollständig eigenständig
+├── modules/                    # Fully self-contained modules
 │   ├── plex/
-│   │   └── __init__.py         # Plex-Modul (Priorität 0)
+│   │   └── __init__.py         # Plex module (priority 0)
 │   ├── dwd_weather/
-│   │   ├── __init__.py         # Modul-Einstiegspunkt
-│   │   ├── dwd.py              # Datenabruf DWD Wetter
-│   │   ├── dwd_pollen.py       # Datenabruf Pollenflug
-│   │   ├── dwd_uv.py           # Datenabruf UV-Index
-│   │   └── renderer.py         # Bildrendering
+│   │   ├── __init__.py         # Module entry point
+│   │   ├── dwd.py              # DWD weather data source
+│   │   ├── dwd_pollen.py       # Pollen data source
+│   │   ├── dwd_uv.py           # UV index data source
+│   │   └── renderer.py         # Image rendering
 │   ├── gallery/
-│   │   ├── __init__.py         # Modul-Einstiegspunkt
-│   │   ├── data_source.py      # Dateisuche + Bildauswahl
-│   │   └── renderer.py         # Bildrendering
+│   │   ├── __init__.py         # Module entry point
+│   │   ├── data_source.py      # File discovery and image selection
+│   │   └── renderer.py         # Image rendering
 │   └── tagesschau/
-│       ├── __init__.py         # Modul-Einstiegspunkt
-│       ├── data_source.py      # Datenabruf + Bild-Cache
-│       └── renderer.py         # Bildrendering
+│       ├── __init__.py         # Module entry point
+│       ├── data_source.py      # Data source and image cache
+│       └── renderer.py         # Image rendering
 │
-├── .github/workflows/          # GitHub Actions CI
-├── .gitattributes              # Einheitliche Zeilenenden/Binary-Markierungen
-├── CHANGELOG.md                # Release-Historie
-├── CONTRIBUTING.md             # Hinweise für Beiträge
-├── Dockerfile                  # Container-Build
-├── docker-compose.yml          # Lokaler Container-Start
-├── wsgi.py                     # Gunicorn/WSGI-Einstiegspunkt
-├── templates/                  # Jinja2-HTML-Templates
-├── font/                       # Font Awesome (für Wetter-Icons)
-├── esp32/                      # Arduino-Sketch für den E-Ink-Client
-├── data/output/                # Gerenderte Bilder + State-Datei
-├── logs/                       # JSON-Logdateien
-└── .env                        # Konfiguration (nicht einchecken)
+├── .github/workflows/          # GitHub Actions workflows
+├── .gitattributes              # Line ending and binary file hints
+├── CHANGELOG.md                # Release history
+├── CONTRIBUTING.md             # Contribution guidelines
+├── Dockerfile                  # Container build definition
+├── docker-compose.yml          # Local container startup
+├── wsgi.py                     # Gunicorn/WSGI entry point
+├── templates/                  # Jinja2 HTML templates
+├── font/                       # Font Awesome files for weather icons
+├── esp32/                      # Arduino sketch for the E-Ink client
+├── data/output/                # Rendered images and state file
+├── logs/                       # JSON log files
+└── .env                        # Configuration (do not commit)
 ```
 
 ---
 
-## Modul-System
+## Module System
 
-Das Framework ist ein reines Gerüst. Die gesamte Anzeigelogik steckt in Modulen unter `modules/`. Beim Start scannt der Server automatisch diesen Ordner und registriert alle gefundenen Module. Über die Weboberfläche können Module auch zur Laufzeit neu eingelesen werden, ohne den Server neu zu starten.
+The framework is intentionally lightweight. All display logic lives in modules under `modules/`. On startup, the server scans this directory automatically and registers every valid module it finds. Modules can also be reloaded at runtime through the web UI without restarting the server.
 
-### Prioritäten
+### Priorities
 
-| `MODULE_PRIORITY` | Typ | Verhalten |
+| `MODULE_PRIORITY` | Type | Behavior |
 |---|---|---|
-| `< 10` | **Prioritätsmodul** | Überschreibt alle Idle-Module sobald es Inhalt liefert (z. B. Plex während der Wiedergabe) |
-| `>= 10` | **Idle-Modul** | Wird rotiert wenn kein Prioritätsmodul aktiv ist |
+| `< 10` | **Priority module** | Overrides all idle modules as soon as it provides content, for example Plex during playback |
+| `>= 10` | **Idle module** | Rotates when no priority module is active |
 
 ---
 
-## Neues Modul erstellen
+## Create a New Module
 
-Ein Modul besteht aus einem Ordner unter `modules/` mit einer `__init__.py`. Mehr Dateien (Datenabruf, Rendering, …) können frei im selben Ordner organisiert werden.
+A module consists of a folder under `modules/` with a `__init__.py`. Additional files for data fetching, parsing, caching, or rendering can be organized freely inside the same folder.
 
-### Schritt 1 – Ordner anlegen
+### Step 1 – Create a Folder
 
 ```
 modules/
-└── mein_modul/
+└── my_module/
     └── __init__.py
 ```
 
-### Schritt 2 – `__init__.py` schreiben
+### Step 2 – Write `__init__.py`
 
 ```python
 from __future__ import annotations
@@ -289,71 +337,71 @@ from app.logger import get_logger
 log = get_logger(__name__)
 
 
-# ── Settings-Felder (erscheinen automatisch in der Weboberfläche) ──────────
+# Settings fields (automatically appear in the web UI)
 
 SETTINGS_FIELDS: list[dict] = [
     {
         "name":        "MEIN_MODUL_API_KEY",
-        "label":       "API-Schlüssel",
+        "label":       "API Key",
         "type":        "text",           # text | number | password | select |
                                          # checkbox_group | priority_list
         "wide":        True,             # True = volle Breite im Formular
         "placeholder": "abc123",
-        "help":        "API-Key für den externen Dienst.",
+        "help":        "API key for the external service.",
     },
     {
         "name":        "MEIN_MODUL_REFRESH",
-        "label":       "Aktualisierung (s)",
+        "label":       "Refresh (s)",
         "type":        "number",
         "wide":        False,
         "placeholder": "300",
         "min":         60,
         "max":         86400,
-        "help":        "Wie oft Daten neu abgerufen werden.",
+        "help":        "How often data should be refreshed.",
     },
 ]
 
-# Optionale Untergruppen – gruppiert die Felder in der Weboberfläche
+# Optional field groups for the settings page
 SETTINGS_GROUPS: list[dict] = [
     {
-        "title":  "Verbindung",
-        "desc":   "Zugangsdaten für den externen Dienst.",
+        "title":  "Connection",
+        "desc":   "Access details for the external service.",
         "fields": ["MEIN_MODUL_API_KEY", "MEIN_MODUL_REFRESH"],
     },
 ]
 
 
-# ── Modul-Implementierung ──────────────────────────────────────────────────
+# Module implementation
 
-class MeinModul(PlexInkModule):
-    MODULE_ID          = "mein_modul"           # eindeutige ID, Kleinbuchstaben + _
-    MODULE_NAME        = "Mein Modul"           # Anzeigename in der Weboberfläche
-    MODULE_DESCRIPTION = "Kurze Beschreibung."
-    MODULE_PRIORITY    = 120                    # >= 10 → Idle-Modul
+class MyModule(PlexInkModule):
+    MODULE_ID          = "my_module"             # unique ID, lowercase + underscores
+    MODULE_NAME        = "My Module"            # display name in the web UI
+    MODULE_DESCRIPTION = "Short description."
+    MODULE_PRIORITY    = 120                    # >= 10 means idle module
 
     SETTINGS_FIELDS = SETTINGS_FIELDS
     SETTINGS_GROUPS = SETTINGS_GROUPS
 
     def is_enabled(self, env: dict[str, str]) -> bool:
-        """Gibt False zurück → Modul wird komplett übersprungen."""
-        return "mein_modul" in env.get("IDLE_MODULES", "")
+        """Return False to skip the module entirely."""
+        return "my_module" in env.get("IDLE_MODULES", "")
 
     def fetch_content(self, env: dict[str, str]) -> Any | None:
         """
-        Daten holen (API-Call, Datei lesen, …).
-        Gibt None zurück → kein Inhalt, nächstes Modul wird versucht.
+        Fetch data from an API, file, cache, or other source.
+        Return None when the module currently has no content.
         """
         api_key = env.get("MEIN_MODUL_API_KEY", "").strip()
         if not api_key:
             return None
 
-        # Eigene Datenabruf-Logik hier:
+        # Your own data-fetching logic goes here:
         # from .data_source import fetch_meine_daten
         # return fetch_meine_daten(api_key)
-        return {"message": "Hallo Welt", "api_key": api_key}
+        return {"message": "Hello World", "api_key": api_key}
 
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
-        """Inhalt als PIL-Bild rendern."""
+        """Render the module content into a PIL image."""
         from app.config import get_cfg, load_font
         cfg = get_cfg()
         w, h = cfg.render_width, cfg.render_height
@@ -373,15 +421,16 @@ class MeinModul(PlexInkModule):
 
     def should_refresh(self, env: dict[str, str]) -> bool:
         """
-        True → neu rendern, auch wenn get_state_key() gleich geblieben ist.
-        Nützlich für zeitgesteuerte Cache-Invalidierung.
+        Return True to force re-rendering even when the state key
+        is unchanged. Useful for time-based cache invalidation.
         """
         return False
 
     def get_state_key(self, content: Any) -> str:
         """
-        Eindeutiger Fingerabdruck des Inhalts. Ändert er sich, wird neu gerendert.
-        Standard: MODULE_ID (immer neu rendern wenn Modul wechselt).
+        Unique fingerprint of the current content. When it changes,
+        the framework re-renders. Default behavior is effectively
+        "render whenever the active module changes".
         """
         if isinstance(content, dict):
             return content.get("message", self.MODULE_ID)
@@ -389,43 +438,43 @@ class MeinModul(PlexInkModule):
 
     def get_next_wake_seconds(self, env: dict[str, str], state: str) -> int | None:
         """
-        Optional: modul-spezifische Wake-Empfehlung für /meta.json.
-        None -> Framework-Standardlogik verwenden.
+        Optional: module-specific wake recommendation for /meta.json.
+        Return None to fall back to the framework default.
         """
         return None
 
     def get_background_poll_seconds(self, env: dict[str, str]) -> int | None:
         """
-        Optional: eigenes Poll-Intervall für den Background-Worker.
-        None -> Framework-Standardlogik verwenden.
+        Optional: custom poll interval for the background worker.
+        Return None to use the framework default.
         """
         return None
 
 
-module = MeinModul()   # ← Pflicht: muss 'module' heißen
+module = MyModule()   # must be exported as "module"
 ```
 
-### Schritt 3 – Aktivieren
+### Step 3 – Enable the Module
 
-1. **Server neustarten** – oder in der Weboberfläche auf **„Module neu scannen"** klicken.
-2. Unter **Einstellungen → Kern-Einstellungen → Idle-Module** das neue Modul aktivieren.
-3. Modul-eigene Einstellungen erscheinen automatisch im neuen Abschnitt.
+1. **Restart the server** or click **"Rescan modules"** in the web UI.
+2. Enable the module under **Settings -> Core Settings -> Idle Modules**.
+3. Module-specific settings will appear automatically in their own section.
 
 ---
 
-### Eigene Dateien im Modul-Ordner
+### Additional Files Inside the Module Folder
 
-Für größere Module empfiehlt es sich, Datenabruf und Rendering in separate Dateien aufzuteilen:
+For larger modules, it makes sense to split fetching and rendering into separate files:
 
 ```
 modules/
-└── mein_modul/
-    ├── __init__.py       # PlexInkModule-Klasse + module = MeinModul()
-    ├── data_source.py    # API-Calls, Parsing, Caching
-    └── renderer.py       # PIL-Rendering-Funktionen
+└── my_module/
+    ├── __init__.py       # PlexInkModule class + module = MyModule()
+    ├── data_source.py    # API calls, parsing, caching
+    └── renderer.py       # PIL rendering helpers
 ```
 
-Innerhalb des Pakets können relative Imports verwendet werden:
+Relative imports can be used inside the package:
 
 ```python
 # In __init__.py:
@@ -435,52 +484,53 @@ from .renderer import render_meine_ansicht
 
 ---
 
-### Framework-Utilities
+### Framework Utilities
 
-Folgende Helfer aus dem Framework können in Modulen verwendet werden:
+These helpers from the framework are available inside modules:
 
-| Import | Beschreibung |
+| Import | Description |
 |---|---|
-| `from app.config import get_cfg` | Aktuellen `RuntimeConfig`-Snapshot lesen |
-| `from app.config import load_font` | TrueType-Font laden (gecacht) |
-| `from app.http_client import HTTP_SESSION` | Gemeinsame `requests.Session` mit Retry |
-| `from app.http_client import download_image` | URL als PIL-Image laden |
-| `from app.logger import get_logger` | Strukturierter Logger (JSON) |
-| `from app.image_rendering import …` | Shared Rendering-Utilities |
+| `from app.config import get_cfg` | Read the current `RuntimeConfig` snapshot |
+| `from app.config import load_font` | Load a cached TrueType font |
+| `from app.http_client import HTTP_SESSION` | Shared `requests.Session` with retry behavior |
+| `from app.http_client import download_image` | Load a URL into a PIL image |
+| `from app.logger import get_logger` | Structured JSON logger |
+| `from app.image_rendering import ...` | Shared rendering utilities |
 
 ---
 
-## ESP32-Client
+## ESP32 Client
 
-Der Sketch unter `esp32/PlexEInk/` verbindet sich per WLAN mit dem Server, prüft periodisch den `/meta.json`-Endpunkt und lädt das Bild nur dann herunter, wenn sich der Hash geändert hat. Die empfohlene Schlafzeit kommt direkt vom Server (`next_wake_sec`).
+The sketch in `esp32/PlexEInk/` connects to the server over Wi-Fi, periodically checks `/meta.json`, and downloads the image only when the hash changed. The suggested sleep interval also comes directly from the server through `next_wake_sec`.
 
-`next_wake_sec` ist bewusst modular aufgebaut:
+`next_wake_sec` is intentionally modular:
 
-- Plex verwendet eine eigene Wake-Logik abhängig vom Wiedergabestatus
-- Idle-Module verwenden standardmäßig `IDLE_MODULE_ROTATION_SECONDS`
-- einzelne Module können über einen Hook eine eigene Wake-Empfehlung für `/meta.json` liefern
+- Plex uses its own wake logic depending on playback state
+- Idle modules use `IDLE_MODULE_ROTATION_SECONDS` by default
+- Individual modules can provide their own wake recommendation for `/meta.json` through a hook
 
-Das ist zum Beispiel für `Gallery` relevant, wenn dort ein eigenes Bildwechsel-Intervall aktiviert ist.
+This is especially relevant for `Gallery` when a custom image change interval is enabled.
 
 ---
 
 ## GitHub
 
-Für einen sauberen Start auf GitHub sind jetzt enthalten:
+The repository is now prepared for a clean GitHub setup with:
 
-- `.gitignore` für lokale Laufzeitdaten und Entwicklungsartefakte
-- `.gitattributes` für konsistente Zeilenenden und Binary-Dateien
-- `.env.example` als Einstiegskonfiguration
+- `.gitignore` for local runtime data and development artifacts
+- `.gitattributes` for consistent line endings and binary files
+- `.env.example` as a starting configuration
 - `LICENSE` (Non-Commercial)
-- `CHANGELOG.md` für Release-Historie
-- `CONTRIBUTING.md` für Entwicklungs- und PR-Hinweise
-- GitHub Actions CI unter `.github/workflows/ci.yml`
+- `CHANGELOG.md` for release history
+- `CONTRIBUTING.md` for development and pull request guidance
+- GitHub Actions CI in `.github/workflows/ci.yml`
+- Docker publish workflow in `.github/workflows/docker-publish.yml`
 
-Die CI prüft:
+The CI currently checks:
 
-- Python-Bytecode-Compile
-- Unit-Tests
-- Template-Smoke-Test
+- Python bytecode compilation
+- Unit tests
+- Template smoke test
 
 ---
 

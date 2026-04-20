@@ -34,3 +34,7 @@ jobs:
       - name: Template smoke test
         run: |
           python -c "from app.server import app; [app.jinja_env.get_template(name) for name in ['base.html','index.html','settings.html','logs.html']]; print('TEMPLATES_OK')"
+
+      - name: Docker build smoke test
+        run: |
+          docker build -t pleximagee-ink:test .
