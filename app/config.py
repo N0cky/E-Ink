@@ -41,7 +41,9 @@ def resolve_env_file_path() -> Path:
 ENV_FILE_PATH = resolve_env_file_path()
 load_dotenv(ENV_FILE_PATH)
 
-DATA_DIR = PROJECT_DIR / "data" / "output"
+# Ausgabepfad: per PLEXINK_OUTPUT_DIR überschreibbar (Docker: /output)
+_output_env = os.environ.get("PLEXINK_OUTPUT_DIR", "").strip()
+DATA_DIR = Path(_output_env) if _output_env else PROJECT_DIR / "data" / "output"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 CURRENT_IMAGE_PATH = DATA_DIR / "current.png"

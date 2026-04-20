@@ -23,9 +23,10 @@ RUN pip install -r /tmp/requirements.txt
 
 COPY . /app
 
-# Verzeichnisse im Image anlegen; Entrypoint überschreibt Berechtigungen der Mounts zur Laufzeit
-RUN mkdir -p /app/data/output /app/logs /config \
-    && chown -R appuser:appuser /app /config \
+# Volume-Einstiegspunkte anlegen; Entrypoint überschreibt Berechtigungen zur Laufzeit.
+# /output und /logs entsprechen PLEXINK_OUTPUT_DIR / PLEXINK_LOGS_DIR aus docker-compose.
+RUN mkdir -p /output /logs /config \
+    && chown -R appuser:appuser /app /output /logs /config \
     && chmod +x /app/entrypoint.sh
 
 EXPOSE 8787
