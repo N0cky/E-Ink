@@ -6,8 +6,8 @@ Rotation, Theme, Ausgabeformat, Idle-Verwaltung, Zeitzone).
 Modul-spezifische Einstellungen (Plex, DWD, Tagesschau …) sind in den
 jeweiligen modules/*/SETTINGS_FIELDS definiert.
 
-WICHTIG: Dieses Modul darf NICHT von app.plex, app.data_sources.* oder
-app.image_rendering importieren – es steht am Anfang der Dependency-Chain.
+WICHTIG: Dieses Modul darf NICHT von app.plex oder app.image_rendering
+importieren – es steht am Anfang der Dependency-Chain.
 """
 
 from __future__ import annotations

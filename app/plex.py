@@ -21,11 +21,8 @@ from app.config import (
     VIDEO_SESSION_FIELDS,
     TRACK_SESSION_FIELDS,
 )
+from app.http_client import HTTP_SESSION, download_image
 from app.logger import get_logger
-
-# HTTP-Client und download_image werden zentral in app.http_client verwaltet.
-# Hier re-exportiert für Backward-Kompatibilität.
-from app.http_client import HTTP_SESSION, download_image  # noqa: F401
 
 log = get_logger(__name__)
 
