@@ -407,6 +407,16 @@ def health():
     return jsonify({"ok": True, "modules": _build_module_health()})
 
 
+@app.route("/logo.png", methods=["GET"])
+def logo_png():
+    return send_file(str(PROJECT_DIR / "logo.png"), mimetype="image/png", max_age=3600)
+
+
+@app.route("/favicon.png", methods=["GET"])
+def favicon_png():
+    return send_file(str(PROJECT_DIR / "logo.png"), mimetype="image/png", max_age=3600)
+
+
 @app.route("/current.png", methods=["GET"])
 def current_png():
     if not CURRENT_IMAGE_PATH.exists():

@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PlexImageE-Ink{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('favicon_png') }}">
     <script>
         (function () {
             var t = localStorage.getItem('plexeink-ui-theme') || 'dark';
@@ -82,11 +83,19 @@
         }
         .topbar-left {
             display: flex;
-            align-items: baseline;
+            align-items: center;
             gap: 10px;
             min-width: 0;
         }
-        .logo-icon { font-size: 20px; line-height: 1; }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 1px solid var(--border);
+            background: var(--surface3);
+            flex: 0 0 auto;
+        }
         .logo-name {
             font-size: 17px;
             font-weight: 800;
@@ -227,7 +236,7 @@
 <div class="page-shell">
     <header class="topbar">
         <div class="topbar-left">
-            <span class="logo-icon">🖼</span>
+            <img class="logo-icon" src="{{ url_for('logo_png') }}" alt="PlexImageE-Ink logo">
             <span class="logo-name">PlexImage<span class="logo-dot">E-Ink</span></span>
             <span class="logo-sub">{% block page_subtitle %}{% endblock %}</span>
         </div>

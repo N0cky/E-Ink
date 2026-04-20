@@ -1,5 +1,9 @@
 # PlexImageE-Ink
 
+<p align="center">
+  <img src="logo.png" alt="PlexImageE-Ink logo" width="220">
+</p>
+
 PlexImageE-Ink is a self-hosted image server for E-Ink displays.
 
 It renders active Plex playback and configurable idle content like weather, news, and gallery images into a display-ready image that can be fetched by an ESP32 or another lightweight client. The client only needs to wake up briefly, check whether the image changed, download it if needed, and go back to sleep.
@@ -32,7 +36,6 @@ Supported output modes:
 - **Web UI** – browser-based settings, live preview, and log viewer
 - **Docker-ready** – container startup via `Dockerfile` and `docker-compose.yml`
 - **WSGI-ready** – production container startup through Gunicorn with a clean runtime bootstrap
-- **GitHub-ready** – non-commercial license, CI workflow, and cleaned-up repository files
 
 ---
 
