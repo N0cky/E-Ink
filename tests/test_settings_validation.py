@@ -4,9 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from pathlib import Path
 
 import app.server as server_module
-from app.config import get_settings_values
+from app.config import CONFIG_DIR, get_settings_values, resolve_env_file_path
 
 
 class SettingsValidationFlowTest(unittest.TestCase):
@@ -144,6 +145,15 @@ class SettingsValidationFlowTest(unittest.TestCase):
         log_startup.assert_called_once()
         render_image.assert_called_once()
         thread_ctor.assert_called_once()
+
+    def test_default_config_file_path_points_to_config_directory(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            self.assertEqual(resolve_env_file_path(), CONFIG_DIR / "settings.env")
+
+    def test_custom_config_file_path_is_respected(self) -> None:
+        custom = Path("/tmp/custom-settings.env")
+        with patch.dict("os.environ", {"PLEXINK_CONFIG_FILE": str(custom)}, clear=False):
+            self.assertEqual(resolve_env_file_path(), custom)
 
 
 if __name__ == "__main__":

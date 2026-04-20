@@ -17,7 +17,7 @@ RUN pip install -r /tmp/requirements.txt
 
 COPY . /app
 
-RUN mkdir -p /app/data/output /app/logs && chown -R appuser:appuser /app
+RUN mkdir -p /app/data/output /app/logs /config && chown -R appuser:appuser /app /config
 
 USER appuser
 

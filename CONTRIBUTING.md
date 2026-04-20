@@ -6,7 +6,7 @@ Thanks for taking the time to contribute to PlexImageE-Ink.
 
 1. Create a virtual environment.
 2. Install dependencies from `app/requirements.txt`.
-3. Copy `.env.example` to `.env`.
+3. Copy `config/settings.env.example` to `config/settings.env`.
 4. Start the local dev server with `python app/server.py`.
 
 ## Project Structure
@@ -33,7 +33,7 @@ python -c "from app.server import app; [app.jinja_env.get_template(name) for nam
 
 - Keep new features modular and prefer module hooks over server special cases.
 - Avoid committing generated files, logs, caches, local secrets, or virtualenv contents.
-- If you add a new module, also update `docs/modules.md` and `.env.example` when relevant.
+- If you add a new module, also update `docs/modules.md` and `config/settings.env.example` when relevant.
 - If behavior changes are user-facing, add a short note to `CHANGELOG.md`.
 
 ## Reporting Issues

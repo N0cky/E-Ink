@@ -4,10 +4,11 @@ services:
     container_name: pleximagee-ink
     init: true
     ports:
-      - "${PORT:-8787}:8787"
-    env_file:
-      - .env
+      - "8787:8787"
+    environment:
+      PLEXINK_CONFIG_FILE: /config/settings.env
     volumes:
+      - ./config:/config
       - ./data/output:/app/data/output
       - ./logs:/app/logs
     restart: unless-stopped

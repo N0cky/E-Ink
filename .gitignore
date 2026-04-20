@@ -17,6 +17,8 @@ venv/
 
 # Local app state
 .env
+config/*.env
+!config/*.example
 logs/
 data/output/
 bin/

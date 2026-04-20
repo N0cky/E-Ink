@@ -27,7 +27,18 @@ from PIL import ImageFont
 
 BASE_DIR    = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
-ENV_FILE_PATH = PROJECT_DIR / ".env"
+CONFIG_DIR = PROJECT_DIR / "config"
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_env_file_path() -> Path:
+    configured = os.environ.get("PLEXINK_CONFIG_FILE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return CONFIG_DIR / "settings.env"
+
+
+ENV_FILE_PATH = resolve_env_file_path()
 load_dotenv(ENV_FILE_PATH)
 
 DATA_DIR = PROJECT_DIR / "data" / "output"
@@ -482,7 +493,8 @@ def read_env_settings() -> dict[str, str]:
 
 
 def write_env_settings(updates: dict[str, str]) -> None:
-    """Schreibt die .env-Datei atomar via Temp-Datei + rename."""
+    """Schreibt die aktive Env-Konfigurationsdatei atomar via Temp-Datei + rename."""
+    ENV_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     lines = ENV_FILE_PATH.read_text(encoding="utf-8").splitlines() if ENV_FILE_PATH.exists() else []
     remaining = dict(updates)
     new_lines: list[str] = []

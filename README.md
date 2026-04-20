@@ -75,8 +75,9 @@ python -m venv .venv
 pip install -r app/requirements.txt
 
 # Create the config file
-copy .env.example .env              # Windows PowerShell / CMD
-# cp .env.example .env             # Linux / macOS
+mkdir config
+copy config\settings.env.example config\settings.env      # Windows PowerShell / CMD
+# mkdir -p config && cp config/settings.env.example config/settings.env   # Linux / macOS
 
 # Start the server
 python app/server.py
@@ -87,8 +88,9 @@ The web UI is then available at `http://localhost:8787`.
 ### Docker
 
 ```bash
-copy .env.example .env              # Windows
-# cp .env.example .env             # Linux / macOS
+mkdir config
+copy config\settings.env.example config\settings.env      # Windows
+# mkdir -p config && cp config/settings.env.example config/settings.env   # Linux / macOS
 
 docker compose up --build -d
 ```
@@ -126,8 +128,9 @@ This keeps the display logic simple while letting the server handle data fetchin
 
 ```bash
 # Create the config file
-copy .env.example .env              # Windows
-# cp .env.example .env             # Linux / macOS
+mkdir config
+copy config\settings.env.example config\settings.env      # Windows
+# mkdir -p config && cp config/settings.env.example config/settings.env   # Linux / macOS
 
 # Build and start the container
 docker compose up --build -d
@@ -137,6 +140,7 @@ The web UI is then available at `http://localhost:8787`.
 
 Persistent directories:
 
+- `./config` – runtime configuration file
 - `./data/output` – rendered images
 - `./logs` – JSON logs
 
@@ -144,7 +148,12 @@ Persistent directories:
 
 ```bash
 docker build -t pleximagee-ink .
-docker run --rm -p 8787:8787 --env-file .env -v ./data/output:/app/data/output -v ./logs:/app/logs pleximagee-ink
+docker run --rm -p 8787:8787 \
+  -e PLEXINK_CONFIG_FILE=/config/settings.env \
+  -v ./config:/config \
+  -v ./data/output:/app/data/output \
+  -v ./logs:/app/logs \
+  pleximagee-ink
 ```
 
 ### Production Notes
@@ -184,14 +193,14 @@ Typical Unraid mapping:
   - `ghcr.io/n0cky/e-ink:latest`
 - Port:
   - `8787` container -> `8787` host
+- Environment:
+  - `PLEXINK_CONFIG_FILE=/config/settings.env`
 - AppData / volumes:
+  - `/mnt/user/appdata/pleximagee-ink/config` -> `/config`
   - `/mnt/user/appdata/pleximagee-ink/output` -> `/app/data/output`
   - `/mnt/user/appdata/pleximagee-ink/logs` -> `/app/logs`
 
-For configuration, either:
-
-- pass environment variables directly in Unraid
-- or maintain the values externally and mirror them in the container configuration
+Keep the main runtime configuration in `/config/settings.env`.
 
 ### First Release to GHCR
 
@@ -210,7 +219,16 @@ If you want Unraid to pull the image without GitHub authentication, make sure th
 
 ## Configuration
 
-All settings can be managed through the web UI at `/settings`, or directly in the `.env` file in the project root.
+All settings can be managed through the web UI at `/settings`, or directly in an env-style config file.
+
+Config file lookup:
+
+1. `PLEXINK_CONFIG_FILE`
+2. `./config/settings.env`
+
+Recommended setup for all environments:
+
+- `./config/settings.env`
 
 | Variable | Description | Default |
 |---|---|---|
@@ -228,6 +246,8 @@ All settings can be managed through the web UI at `/settings`, or directly in th
 | `PLEX_TOKEN` | Plex API token | `` |
 
 Module-specific variables such as DWD station, pollen region, or gallery paths are defined by the modules themselves and are also managed through the web UI.
+
+When settings are changed through the web UI, the application writes them back to the active config file path.
 
 ---
 
@@ -256,7 +276,7 @@ PlexImageE-Ink/
 │
 ├── app/                        # Framework-Kern
 │   ├── server.py               # Flask server, render loop, and API routes
-│   ├── config.py               # Configuration, RuntimeConfig, and .env I/O
+│   ├── config.py               # Configuration, RuntimeConfig, and env-file I/O
 │   ├── module_base.py          # PlexInkModule base class for all modules
 │   ├── module_registry.py      # Module auto-discovery and hot reload
 │   ├── module_services.py      # Service dataclasses for modular renderers
@@ -293,9 +313,12 @@ PlexImageE-Ink/
 ├── templates/                  # Jinja2 HTML templates
 ├── font/                       # Font Awesome files for weather icons
 ├── esp32/                      # Arduino sketch for the E-Ink client
+├── config/
+│   ├── settings.env.example    # Example runtime configuration
+│   └── settings.env            # Local runtime configuration (do not commit)
 ├── data/output/                # Rendered images and state file
 ├── logs/                       # JSON log files
-└── .env                        # Configuration (do not commit)
+└── ...
 ```
 
 ---
@@ -519,7 +542,7 @@ The repository is now prepared for a clean GitHub setup with:
 
 - `.gitignore` for local runtime data and development artifacts
 - `.gitattributes` for consistent line endings and binary files
-- `.env.example` as a starting configuration
+- `config/settings.env.example` as a starting configuration
 - `LICENSE` (Non-Commercial)
 - `CHANGELOG.md` for release history
 - `CONTRIBUTING.md` for development and pull request guidance
