@@ -91,6 +91,26 @@ class SettingsValidationFlowTest(unittest.TestCase):
             apply_cfg.assert_called_once()
             render_image.assert_called_once()
 
+    def test_steam_enabled_without_profile_or_key_blocks_save(self) -> None:
+        form_data = self._build_valid_form_data()
+        form_data["STEAM_MODULE_ENABLED"] = "true"
+        form_data["STEAM_PROFILE"] = ""
+        form_data["STEAM_API_KEY"] = ""
+
+        with (
+            patch("app.server.write_env_settings") as write_env,
+            patch("app.server.apply_runtime_config") as apply_cfg,
+            patch("app.server.render_image") as render_image,
+        ):
+            response = self.client.post("/settings", data=form_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Steam-Profil: Bitte SteamID64, Vanity-Name oder Profil-URL angeben.", response.get_data(as_text=True))
+        self.assertIn("Steam Web API Key: Bitte einen gültigen API-Key hinterlegen.", response.get_data(as_text=True))
+        write_env.assert_not_called()
+        apply_cfg.assert_not_called()
+        render_image.assert_not_called()
+
     def test_night_mode_fixed_module_must_be_active_idle_module(self) -> None:
         form_data = self._build_valid_form_data()
         form_data["NIGHT_MODE_ENABLED"] = "true"

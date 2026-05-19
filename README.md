@@ -6,7 +6,7 @@
 
 PlexImageE-Ink is a self-hosted image server for E-Ink displays.
 
-It renders active Plex playback and configurable idle content like weather, news, and gallery images into a display-ready image that can be fetched by an ESP32 or another lightweight client. The client only needs to wake up briefly, check whether the image changed, download it if needed, and go back to sleep.
+It renders active live content like Plex playback or the current Steam game, plus configurable idle content like weather, news, and gallery images into a display-ready image that can be fetched by an ESP32 or another lightweight client. The client only needs to wake up briefly, check whether the image changed, download it if needed, and go back to sleep.
 
 Supported output modes:
 
@@ -18,7 +18,7 @@ Supported output modes:
 ## Why This Project
 
 - Designed for low-power E-Ink clients that should sleep most of the time
-- Optimized for a "now playing" use case with Plex as the primary live source
+- Optimized for a "now playing" use case with Plex and Steam as primary live sources
 - Falls back to modular idle content when nothing is playing
 - Fully self-hosted and configurable through a browser UI
 - Built to be extensible through standalone modules instead of hard-coded features
@@ -28,6 +28,7 @@ Supported output modes:
 ## Features
 
 - **Plex integration** – automatically shows active movies, TV episodes, and music with cover art, metadata, and progress bars
+- **Steam integration** – shows the currently played Steam game for a configured profile with cover art, avatar, and status
 - **DWD weather** – current conditions, hourly timeline, multi-day forecast, UV index, and pollen data from the German Weather Service
 - **Tagesschau news** – current news cards with thumbnail and teaser text
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
@@ -116,7 +117,7 @@ The server keeps the latest rendered image on disk and exposes it over HTTP.
 
 Typical flow:
 
-1. A priority module like Plex provides live content if active.
+1. A priority module like Plex or Steam provides live content if active.
 2. Otherwise the configured idle modules rotate automatically.
 3. The client checks `/meta.json` for hash, format, and the suggested sleep interval.
 4. The client downloads the image only when it actually changed.
@@ -253,6 +254,9 @@ Recommended setup for all environments:
 | `NIGHT_MODE_FIXED_MODULE` | Idle module to pin during night mode when behavior is `fixed` | `` |
 | `PLEX_BASE_URL` | Plex server URL | `` |
 | `PLEX_TOKEN` | Plex API token | `` |
+| `STEAM_PROFILE` | SteamID64, vanity name, or Steam profile URL | `` |
+| `STEAM_API_KEY` | Steam Web API key | `` |
+| `STEAM_MODULE_ENABLED` | Enable Steam live game detection | `false` |
 
 Module-specific variables such as DWD station, pollen region, or gallery paths are defined by the modules themselves and are also managed through the web UI.
 
@@ -291,11 +295,15 @@ PlexImageE-Ink/
 │   ├── module_services.py      # Service dataclasses for modular renderers
 │   ├── http_client.py          # Shared HTTP client (requests.Session)
 │   ├── plex.py                 # Plex API client (session parsing, artwork)
+│   ├── steam.py                # Steam API client (profile resolution, artwork)
 │   └── image_rendering.py      # Shared rendering utilities
 │
 ├── modules/                    # Fully self-contained modules
 │   ├── plex/
 │   │   └── __init__.py         # Plex module (priority 0)
+│   ├── steam/
+│   │   ├── __init__.py         # Steam module (priority 1)
+│   │   └── renderer.py         # Steam-specific image rendering
 │   ├── dwd_weather/
 │   │   ├── __init__.py         # Module entry point
 │   │   ├── dwd.py              # DWD weather data source
@@ -339,7 +347,7 @@ The framework is intentionally lightweight. All display logic lives in modules u
 
 | `MODULE_PRIORITY` | Type | Behavior |
 |---|---|---|
-| `< 10` | **Priority module** | Overrides all idle modules as soon as it provides content, for example Plex during playback |
+| `< 10` | **Priority module** | Overrides all idle modules as soon as it provides content, for example Plex or Steam during live activity |
 | `>= 10` | **Idle module** | Rotates when no priority module is active |
 
 ---
@@ -536,7 +544,7 @@ The sketch in `esp32/PlexEInk/` connects to the server over Wi-Fi, periodically 
 
 `next_wake_sec` is intentionally modular:
 
-- Plex uses its own wake logic depending on playback state
+- Plex and Steam use their own wake logic while active
 - Idle modules use `IDLE_MODULE_ROTATION_SECONDS` by default
 - Night mode can temporarily slow idle refreshes and optionally pin a single idle module within a local time window
 - Individual modules can provide their own wake recommendation for `/meta.json` through a hook

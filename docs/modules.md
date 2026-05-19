@@ -74,7 +74,7 @@ module = ExampleModule()
 ## Prioritaet
 
 - `MODULE_PRIORITY < 10`: Prioritaetsmodul
-  - Beispiel: Plex
+  - Beispiel: Plex oder Steam
   - wird vor Idle-Modulen ausgewertet
 - `MODULE_PRIORITY >= 10`: Idle-Modul
   - wird in die Idle-Rotation aufgenommen
@@ -351,5 +351,6 @@ Empfehlung fuer neue Module:
 ## Aktuelle Beispielmodule
 
 - [plex](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/plex/__init__.py)
+- [steam](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/steam/__init__.py)
 - [dwd_weather](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/dwd_weather/__init__.py)
 - [tagesschau](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/tagesschau/__init__.py)

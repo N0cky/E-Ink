@@ -160,6 +160,11 @@ def _compute_image_hash() -> str:
     return h.hexdigest()
 
 
+def _is_priority_media_type(media_type: str) -> bool:
+    mod = _registry.get_module_by_id(media_type)
+    return bool(mod is not None and mod.MODULE_PRIORITY < 10)
+
+
 def _suggest_next_wake(state: str, media_type: str) -> tuple[int, str]:
     cfg = get_cfg()
     if media_type == "plex":
@@ -181,10 +186,16 @@ def _suggest_next_wake(state: str, media_type: str) -> tuple[int, str]:
         if info is not None:
             seconds = max(10, int(info.get("seconds", cfg.idle_module_rotation_seconds)))
             reason = str(info.get("reason", f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")).strip()
+            if mod.MODULE_PRIORITY < 10:
+                return seconds, reason
             return _apply_night_mode_interval(seconds, reason)
         custom = mod.get_next_wake_seconds(env, state)
         if custom is not None:
+            if mod.MODULE_PRIORITY < 10:
+                return max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall"
             return _apply_night_mode_interval(max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")
+        if mod.MODULE_PRIORITY < 10:
+            return cfg.refresh_interval, f"{mod.MODULE_NAME} aktiv – Refresh-Intervall"
 
     return _apply_night_mode_interval(cfg.idle_module_rotation_seconds, "Idle-Modul – Standard-Rotation")
 
@@ -356,7 +367,7 @@ def _get_background_poll_seconds() -> int:
             candidates.append(max(1, int(custom)))
 
     base_poll = min(candidates)
-    if _esp32_state.get("media_type") == "plex":
+    if _is_priority_media_type(_esp32_state.get("media_type", "")):
         return base_poll
 
     night_state = _get_night_mode_state()
@@ -771,6 +782,9 @@ def log_startup_config() -> None:
     log.info(f"PLEX_TOKEN gesetzt   = {bool(env.get('PLEX_TOKEN', ''))}")
     log.info(f"PLEX_MODULE_ENABLED  = {env.get('PLEX_MODULE_ENABLED', 'true')}")
     log.info(f"SESSION_PRIORITY     = {env.get('SESSION_PRIORITY', 'movie,episode,track')}")
+    log.info(f"STEAM_PROFILE        = {env.get('STEAM_PROFILE', '')}")
+    log.info(f"STEAM_API_KEY gesetzt= {bool(env.get('STEAM_API_KEY', ''))}")
+    log.info(f"STEAM_MODULE_ENABLED = {env.get('STEAM_MODULE_ENABLED', 'true')}")
     log.info(f"DWD_STATION          = {env.get('DWD_WEATHER_STATION_ID', '10532')}")
 
 
