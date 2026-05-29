@@ -10,8 +10,8 @@ Unterstützt:
 from __future__ import annotations
 
 import functools
-import re
 import io
+import re
 
 from PIL import Image
 import requests
@@ -97,11 +97,17 @@ def _download_steam_candidate(url: str | None) -> Image.Image | None:
 
     try:
         response = HTTP_SESSION.get(url, timeout=20)
+        if response.status_code == 503:
+            log.debug(f"Steam artwork candidate temporarily unavailable (503): {url}")
+            return None
         if response.status_code == 404:
             log.debug(f"Steam artwork candidate not found: {url}")
             return None
         response.raise_for_status()
         return Image.open(io.BytesIO(response.content)).convert("RGB")
+    except requests.exceptions.RetryError as exc:
+        log.debug(f"Steam artwork candidate retry-exhausted: {url} ({exc})")
+        return None
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "?"
         log.warning(f"Steam artwork HTTP error {status_code}: {url}")

@@ -3,8 +3,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from app.steam import (
     _build_store_asset_path,
+    _download_steam_candidate,
     extract_active_game,
     get_game_artwork_urls,
     get_store_item_asset_urls,
@@ -108,6 +111,13 @@ class SteamHelpersTest(unittest.TestCase):
             urls[4],
             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/730/def/header.jpg?t=123",
         )
+
+    def test_download_steam_candidate_treats_retry_error_as_fallback(self) -> None:
+        retry_error = requests.exceptions.RetryError("too many 503 error responses")
+        with patch("app.steam.HTTP_SESSION.get", side_effect=retry_error):
+            image = _download_steam_candidate("https://example.invalid/image.jpg")
+
+        self.assertIsNone(image)
 
 
 if __name__ == "__main__":
