@@ -26,6 +26,7 @@ FA_ICONS = {
     "sunset":             "\uf767",
     "moon":               "\uf186",   # Mondaufgang UND -untergang – Richtung per Pfeil
     "radiation":          "\uf7b9",
+    "warning":            "\uf071",
     # Wetter-Icons
     "sun":                "\uf185",   # 1  Sonnig
     "cloud_sun":          "\uf6c4",   # 2  Leicht bewölkt / sonnig
@@ -151,6 +152,12 @@ _DWD_DARK: dict = {
     "pollen_glass_outline":(140, 185, 240, 55),
     "pollen_title":        (200, 225, 255, 245),
     "pollen_label":        (225, 240, 255, 235),
+    # Warnungen
+    "warning_glass_tint":  (42,  24,  18,  182),
+    "warning_glass_outline": (255, 190, 120, 92),
+    "warning_title":       (255, 225, 196, 245),
+    "warning_text":        (255, 241, 228, 245),
+    "warning_meta":        (255, 214, 182, 220),
 }
 
 _DWD_LIGHT: dict = {
@@ -223,11 +230,39 @@ _DWD_LIGHT: dict = {
     "pollen_glass_outline":(85,  130, 185, 120),
     "pollen_title":        (20,  55,  100, 255),
     "pollen_label":        (8,   30,  62,  255),
+    # Warnungen
+    "warning_glass_tint":  (255, 243, 232, 230),
+    "warning_glass_outline": (214, 138, 68, 130),
+    "warning_title":       (130, 60, 10, 255),
+    "warning_text":        (92,  40,  8,  255),
+    "warning_meta":        (120, 72,  32, 236),
 }
 
 
 def get_dwd_palette(theme: str) -> dict:
     return _DWD_LIGHT if theme == "light" else _DWD_DARK
+
+
+def warning_level_label(level: int | None) -> str:
+    return {
+        1: "Amtliche Warnung",
+        2: "Markantes Wetter",
+        3: "Unwetterwarnung",
+        4: "Extremes Unwetter",
+        5: "Extremes Unwetter",
+    }.get(level, "Warnung")
+
+
+def warning_level_color(level: int | None) -> tuple[int, int, int]:
+    if level is None:
+        return (222, 176, 36)
+    if level >= 4:
+        return (124, 18, 18)
+    if level == 3:
+        return (188, 38, 26)
+    if level == 2:
+        return (214, 132, 24)
+    return (226, 186, 52)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +328,16 @@ def fetch_dwd_weather_content(context: ModuleFetchServices) -> dict | None:
         if raw_ms is not None:
             today_raw[key] = format_unix_ms_time(raw_ms)
     weather["today"] = today_raw
+
+    warning_items = []
+    for warning in weather.get("warnings") or []:
+        warning_copy = dict(warning)
+        for key in ("start", "end"):
+            raw_ms = warning_copy.get(f"_{key}_ms")
+            if raw_ms is not None:
+                warning_copy[key] = format_unix_ms_time(raw_ms)
+        warning_items.append(warning_copy)
+    weather["warnings"] = warning_items
 
     # ── Stündlichen Verlauf nach aktueller Einstellung filtern (ohne Neustart) ──
     hourly_all: list[dict] = weather.get("hourly_all") or []
@@ -597,6 +642,210 @@ def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font
                     chosen_font = candidate
                     break
         draw.text((value_left, value_top), value, font=chosen_font, fill=pal["stat_value"])
+
+
+# ---------------------------------------------------------------------------
+# Warnungen
+# ---------------------------------------------------------------------------
+
+_WARNING_CARD_GAP = 10
+_WARNING_TITLE_H = 30
+_WARNING_TITLE_PAD_TOP = 12
+_WARNING_TITLE_PAD_BOTTOM = 10
+_WARNING_CARD_LIMIT = 2
+
+
+def _layout_warning_cards(warnings: list[dict], card_width: int, load_font) -> list[dict]:
+    measure_img = Image.new("RGBA", (max(1, card_width), 220), (0, 0, 0, 0))
+    measure_draw = ImageDraw.Draw(measure_img, "RGBA")
+    layouts: list[dict] = []
+
+    for warning in warnings[:_WARNING_CARD_LIMIT]:
+        sev_label = warning_level_label(warning.get("level"))
+        pill_font = load_font(14, True)
+        pill_bb = measure_draw.textbbox((0, 0), sev_label, font=pill_font)
+        pill_tw = pill_bb[2] - pill_bb[0]
+        pill_w = max(98, pill_tw + 22)
+        pill_h = 24
+
+        inner_left = 12
+        inner_right = 12
+        headline_x = inner_left + pill_w + 10
+        headline_width = max(80, card_width - headline_x - inner_right)
+        headline = warning.get("headline") or warning.get("event") or "Amtliche Wetterwarnung"
+        headline_font, headline_lines, headline_line_h, headline_spacing, headline_total_h = fit_wrapped_text(
+            measure_draw,
+            headline,
+            max_width=headline_width,
+            max_height=30,
+            start_size=18,
+            min_size=15,
+            load_font=load_font,
+            is_bold=True,
+            max_lines=1,
+            line_spacing=0.1,
+        )
+
+        detail_text = warning.get("description") or warning.get("event") or "Wetterwarnung"
+        meta_text = f"{_warning_time_label(warning)} · {detail_text}"
+        meta_font, meta_lines, meta_line_h, meta_spacing, meta_total_h = fit_wrapped_text(
+            measure_draw,
+            meta_text,
+            max_width=max(80, card_width - inner_left - inner_right),
+            max_height=54,
+            start_size=17,
+            min_size=13,
+            load_font=load_font,
+            max_lines=3,
+            line_spacing=0.1,
+        )
+
+        header_h = max(pill_h, headline_total_h or headline_line_h)
+        card_h = 12 + header_h + 8 + meta_total_h + 12
+        layouts.append({
+            "warning": warning,
+            "pill_text": sev_label,
+            "pill_font": pill_font,
+            "pill_w": pill_w,
+            "pill_h": pill_h,
+            "headline_font": headline_font,
+            "headline_lines": headline_lines[:1],
+            "headline_line_h": headline_line_h,
+            "headline_spacing": headline_spacing,
+            "meta_font": meta_font,
+            "meta_lines": meta_lines[:3],
+            "meta_line_h": meta_line_h,
+            "meta_spacing": meta_spacing,
+            "header_h": header_h,
+            "card_h": card_h,
+        })
+
+    return layouts
+
+
+def warning_strip_height(warnings: list[dict], card_width: int, load_font) -> int:
+    if not warnings:
+        return 0
+    layouts = _layout_warning_cards(warnings, card_width, load_font)
+    return (
+        _WARNING_TITLE_PAD_TOP
+        + _WARNING_TITLE_H
+        + _WARNING_TITLE_PAD_BOTTOM
+        + sum(layout["card_h"] for layout in layouts)
+        + (max(0, len(layouts) - 1) * _WARNING_CARD_GAP)
+        + 14
+    )
+
+
+def _warning_time_label(warning: dict) -> str:
+    start = warning.get("start") or "--:--"
+    end = warning.get("end") or "--:--"
+    if start == "--:--" and end == "--:--":
+        return "Zeit unbekannt"
+    return f"{start} - {end}"
+
+
+def draw_warning_strip(
+    img: Image.Image,
+    bounds: tuple[int, int, int, int],
+    warnings: list[dict],
+    title_font,
+    small_font,
+    pal: dict,
+    load_font,
+) -> None:
+    if not warnings:
+        return
+
+    left, top, right, bottom = bounds
+    apply_glass_panel(
+        img,
+        bounds,
+        radius=22,
+        tint=pal["warning_glass_tint"],
+        outline=pal["warning_glass_outline"],
+        blur_radius=10,
+    )
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    title_y = top + _WARNING_TITLE_PAD_TOP
+    draw_fa_icon(draw, left + 18, title_y + 1, "warning", 18, pal["warning_title"])
+    count = len(warnings)
+    title = "Amtliche Warnungen"
+    if count == 1:
+        title += " · 1 Warnung"
+    else:
+        title += f" · {count} Warnungen"
+    draw.text((left + 44, title_y), title, font=title_font, fill=pal["warning_title"])
+
+    card_left = left + 14
+    card_right = right - 14
+    card_top = top + _WARNING_TITLE_PAD_TOP + _WARNING_TITLE_H + _WARNING_TITLE_PAD_BOTTOM
+    layouts = _layout_warning_cards(warnings, card_right - card_left, load_font)
+
+    current_top = card_top
+    for layout in layouts:
+        warning = layout["warning"]
+        card_bounds = (card_left, current_top, card_right, current_top + layout["card_h"])
+        sev_rgb = warning_level_color(warning.get("level"))
+        apply_glass_panel(
+            img,
+            card_bounds,
+            radius=18,
+            tint=(*sev_rgb, 34),
+            outline=(*sev_rgb, 120),
+            blur_radius=8,
+        )
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        pill_left = card_left + 12
+        pill_top = current_top + 12
+        pill_h = layout["pill_h"]
+        pill_text = layout["pill_text"]
+        pill_font = layout["pill_font"]
+        pill_bb = draw.textbbox((0, 0), pill_text, font=pill_font)
+        pill_tw = pill_bb[2] - pill_bb[0]
+        pill_w = layout["pill_w"]
+        draw.rounded_rectangle(
+            (pill_left, pill_top, pill_left + pill_w, pill_top + pill_h),
+            radius=12,
+            fill=(*sev_rgb, 220),
+        )
+        draw.text(
+            (pill_left + (pill_w - pill_tw) / 2, pill_top + 4),
+            pill_text,
+            font=pill_font,
+            fill=(255, 255, 255, 255),
+        )
+
+        draw_lines(
+            draw,
+            pill_left + pill_w + 10,
+            current_top + 13,
+            layout["headline_lines"],
+            layout["headline_font"],
+            pal["warning_text"],
+            layout["headline_line_h"],
+            layout["headline_spacing"],
+        )
+
+        meta_y = current_top + 12 + layout["header_h"] + 8
+        draw_lines(
+            draw,
+            pill_left,
+            meta_y,
+            layout["meta_lines"],
+            layout["meta_font"],
+            pal["warning_meta"],
+            layout["meta_line_h"],
+            layout["meta_spacing"],
+        )
+        current_top += layout["card_h"] + _WARNING_CARD_GAP
+
+    remaining = len(warnings) - len(layouts)
+    if remaining > 0:
+        hint = f"+{remaining} weitere Warnung" if remaining == 1 else f"+{remaining} weitere Warnungen"
+        draw.text((card_left + 2, bottom - 22), hint, font=small_font, fill=pal["warning_meta"])
 
 
 # ---------------------------------------------------------------------------
@@ -1111,6 +1360,7 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     font_value         = context.load_font(28, True)
     font_label         = context.load_font(21, True)
     font_micro         = context.load_font(16, False)
+    font_warning_title = context.load_font(22, True)
     font_chart_title   = context.load_font(22, True)
     font_chart_time    = context.load_font(13, False)
     font_chart_temp    = context.load_font(16, True)
@@ -1196,8 +1446,25 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     draw.line((panel_left + 42, cur_bottom + 6, panel_right - 42, cur_bottom + 6),
               fill=pal["divider"], width=1)
 
-    # Zone 2: Stat-Panels
+    # Zone 2: Amtliche Warnungen (optional)
+    warning_items = data.get("warnings") or []
+    warning_gap = 10
+    warning_h = warning_strip_height(warning_items, panel_right - panel_left - 112, context.load_font)
     stat_top = cur_bottom + 20
+    if warning_h > 0:
+        warning_top = stat_top
+        draw_warning_strip(
+            img,
+            (panel_left + 42, warning_top, panel_right - 42, warning_top + warning_h),
+            warning_items,
+            font_warning_title,
+            font_micro,
+            pal,
+            context.load_font,
+        )
+        stat_top = warning_top + warning_h + warning_gap
+
+    # Zone 3: Stat-Panels
     stat_h   = 110
     stat_gap = 14
     stat_w   = int((panel_w - 84 - stat_gap * 3) / 4)
@@ -1228,17 +1495,18 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
 
     stat_bottom = stat_top + stat_h
 
-    # Zone 2b: Pollenleiste (optional – nur wenn Pollen-Region + Allergene konfiguriert)
+    # Zone 4: Pollenleiste (optional – nur wenn Pollen-Region + Allergene konfiguriert)
     pollen_data       = data.get("pollen")
     font_pollen_title = context.load_font(24, True)
     font_pollen_label = context.load_font(19, True)
     font_pollen_small = context.load_font(18, False)
 
+    next_zone_top = stat_bottom + 14
     if pollen_data:
         pollen_allergens = pollen_data.get("allergens", {})
         pollen_gap = 10
         pollen_h   = pollen_strip_height(pollen_allergens)
-        pollen_top = stat_bottom + pollen_gap
+        pollen_top = next_zone_top
         draw_pollen_strip(
             img,
             (panel_left + 42, pollen_top, panel_right - 42, pollen_top + pollen_h),
@@ -1246,9 +1514,9 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
         )
         zone3_top = pollen_top + pollen_h + pollen_gap
     else:
-        zone3_top = stat_bottom + 14
+        zone3_top = next_zone_top
 
-    # Zone 3 + 4: Stundenverlauf & Prognose (responsiv)
+    # Zone 5 + 6: Stundenverlauf & Prognose (responsiv)
     remaining      = (panel_bottom - 14) - zone3_top
     forecast_h     = max(110, min(140, int(remaining * 0.24)))
     hourly_alloc   = max(80, remaining - forecast_h - 10)

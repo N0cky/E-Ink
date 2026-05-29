@@ -110,6 +110,12 @@ def format_unix_ms_time(timestamp_ms) -> str:
         return "--:--"
 
 
+def normalize_text(value) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
 def map_dwd_icon_label(icon_code: int | None) -> str:
     return {
         1:  "Sonnig",
@@ -186,6 +192,9 @@ def build_dwd_weather_summary(payload: dict, station_id: str) -> dict | None:
     days = station_data.get("days") or []
     if not isinstance(days, list):
         days = []
+    warnings = station_data.get("warnings") or []
+    if not isinstance(warnings, list):
+        warnings = []
 
     start        = int(forecast1.get("start") or 0)
     step         = int(forecast1.get("timeStep") or 0)
@@ -321,6 +330,41 @@ def build_dwd_weather_summary(payload: dict, station_id: str) -> dict | None:
 
     current_pressure = series_value("surfacePressure", current_index)
     wind_dir_today   = scale_dwd_value(today.get("windDirection"))
+    parsed_warnings: list[dict] = []
+    for entry in warnings:
+        if not isinstance(entry, dict):
+            continue
+        start_ms = entry.get("start")
+        end_ms = entry.get("end")
+        headline = normalize_text(entry.get("headline"))
+        event = normalize_text(entry.get("event"))
+        description = normalize_text(entry.get("descriptionText") or entry.get("description"))
+        instruction = normalize_text(entry.get("instruction"))
+        try:
+            level = int(entry.get("level")) if entry.get("level") is not None else None
+        except (TypeError, ValueError):
+            level = None
+        parsed_warnings.append({
+            "warn_id": entry.get("warnId") or "",
+            "type": entry.get("type"),
+            "level": level,
+            "headline": headline,
+            "event": event,
+            "description": description,
+            "instruction": instruction,
+            "start": format_unix_ms_time(start_ms),
+            "end": format_unix_ms_time(end_ms),
+            "_start_ms": start_ms,
+            "_end_ms": end_ms,
+        })
+
+    parsed_warnings.sort(
+        key=lambda warning: (
+            warning.get("_start_ms") if isinstance(warning.get("_start_ms"), (int, float)) else float("inf"),
+            -(warning.get("level") or 0),
+            warning.get("headline") or "",
+        )
+    )
 
     return {
         "station_id":                  station_id,
@@ -351,6 +395,7 @@ def build_dwd_weather_summary(payload: dict, station_id: str) -> dict | None:
         },
         "hourly_all": hourly_all,
         "days":            weather_days,
+        "warnings":        parsed_warnings,
     }
 
 
