@@ -43,7 +43,10 @@ from app.image_rendering import convert_to_spectra6
 import app.module_registry as _registry
 
 # ── Flask-App ────────────────────────────────────────────────────────────────
-app = Flask(__name__, template_folder=str(PROJECT_DIR / "templates"))
+app = Flask(__name__,
+            template_folder=str(PROJECT_DIR / "templates"),
+            static_folder=str(PROJECT_DIR / "static"),
+            static_url_path="/static")
 
 # Module beim Import laden (deckt sowohl 'python app/server.py' als auch
 # 'flask run' und WSGI-Server ab – reload_modules() ist idempotent)

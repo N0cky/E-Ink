@@ -1,7 +1,7 @@
 # PlexImageE-Ink
 
 <p align="center">
-  <img src="logo.png" alt="PlexImageE-Ink logo" width="220">
+  <img src="static/logo.png" alt="PlexImageE-Ink logo" width="220">
 </p>
 
 PlexImageE-Ink is a self-hosted image server for E-Ink displays.
