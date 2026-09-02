@@ -22,11 +22,21 @@ log = get_logger(__name__)
 MODULES_DIR = Path(__file__).resolve().parents[1] / "modules"
 
 _registry: list[PlexInkModule] = []
+# Pakete, die diese Registry selbst geladen hat. Nur die werden bei einem
+# Rescan aus sys.modules entfernt – nie fremde Importe (z. B. aus Tests).
+_loaded_packages: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
 # Internes Laden
 # ---------------------------------------------------------------------------
+
+def _same_file(mod, init_py: Path) -> bool:
+    try:
+        return Path(getattr(mod, "__file__", "") or "").resolve() == init_py.resolve()
+    except OSError:
+        return False
+
 
 def _load_one(module_dir: Path) -> PlexInkModule | None:
     """Lädt ein einzelnes Modul aus module_dir/__init__.py."""
@@ -36,18 +46,29 @@ def _load_one(module_dir: Path) -> PlexInkModule | None:
 
     pkg_name = f"modules.{module_dir.name}"
     try:
-        spec = importlib.util.spec_from_file_location(
-            pkg_name,
-            init_py,
-            submodule_search_locations=[str(module_dir)],
-        )
-        if spec is None or spec.loader is None:
-            log.warning(f"Kein importlib-Spec für Modul '{module_dir.name}'")
-            return None
-
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[pkg_name] = mod
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        existing = sys.modules.get(pkg_name)
+        if existing is not None and _same_file(existing, init_py):
+            # Paket ist bereits importiert (gleiche Datei): wiederverwenden statt
+            # ein zweites Modulobjekt mit eigenen Caches zu erzeugen.
+            mod = existing
+        else:
+            spec = importlib.util.spec_from_file_location(
+                pkg_name,
+                init_py,
+                submodule_search_locations=[str(module_dir)],
+            )
+            if spec is None or spec.loader is None:
+                log.warning(f"Kein importlib-Spec für Modul '{module_dir.name}'")
+                return None
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[pkg_name] = mod
+            try:
+                spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            except Exception:
+                # Halb initialisiertes Paket darf nicht importierbar bleiben
+                sys.modules.pop(pkg_name, None)
+                raise
+        _loaded_packages.add(pkg_name)
 
         instance = getattr(mod, "module", None)
         if instance is None:
@@ -149,10 +170,14 @@ def reload_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
     """
     global _registry
 
-    # Alte Module-Pakete aus sys.modules entfernen
-    for key in list(sys.modules):
-        if key.startswith("modules."):
-            del sys.modules[key]
+    # Nur die Pakete entfernen, die diese Registry selbst geladen hat (inkl.
+    # Untermodule). Beim ersten Laden ist das nichts – bereits importierte
+    # Pakete (z. B. aus Tests) bleiben dieselben Objekte.
+    for pkg_name in list(_loaded_packages):
+        for key in list(sys.modules):
+            if key == pkg_name or key.startswith(pkg_name + "."):
+                del sys.modules[key]
+    _loaded_packages.clear()
 
     _registry = discover_modules(modules_dir)
     log.info(f"Module-Registry neu geladen: {[m.MODULE_ID for m in _registry]}")

@@ -32,6 +32,7 @@ Supported output modes:
 - **DWD weather** – current conditions, hourly timeline, multi-day forecast, UV index, and pollen data from the German Weather Service
 - **Tagesschau news** – current news cards with thumbnail and teaser text
 - **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours included, with a `{year}` placeholder so the URL never needs a yearly update
+- **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
 - **Modular architecture** – add new content sources as standalone modules without touching the core framework
 - **Dark and light themes** – optimized for OLED-like displays and Waveshare Spectra 6 E-Ink panels
@@ -324,6 +325,10 @@ PlexImageE-Ink/
 │   │   ├── dwd_pollen.py       # Pollen data source
 │   │   ├── dwd_uv.py           # UV index data source
 │   │   └── renderer.py         # Image rendering
+│   ├── calendar_ics/
+│   │   ├── __init__.py         # Kalender module (priority 106)
+│   │   ├── data_source.py      # ICS parser with RRULE/EXDATE, timezones, multi-source cache
+│   │   └── renderer.py         # Today + upcoming days, colour bar per calendar
 │   ├── garbage/
 │   │   ├── __init__.py         # Müllabfuhr module (priority 105)
 │   │   ├── data_source.py      # ICS parser, {year} handling, bin colour mapping
