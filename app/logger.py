@@ -37,6 +37,22 @@ LOG_FILE = LOGS_DIR / "app.jsonl"
 # Formatter
 # ---------------------------------------------------------------------------
 
+import re as _re
+
+# Query-Parameter, deren Werte nie im Log landen dürfen (Plex-Token, Steam-Key, …).
+_SECRET_PARAM_RE = _re.compile(
+    r"([?&](?:X-Plex-Token|key|api_key|apikey|token|access_token|password|secret)=)[^&\s'\"]+",
+    _re.IGNORECASE,
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Maskiert Secret-Werte in URLs. Wird auf jede Log-Zeile angewendet."""
+    if not text:
+        return text
+    return _SECRET_PARAM_RE.sub(r"\1***", text)
+
+
 class _JsonLineFormatter(logging.Formatter):
     """Serialisiert jeden Log-Eintrag als einzelne JSON-Zeile (UTF-8)."""
 
@@ -47,6 +63,7 @@ class _JsonLineFormatter(logging.Formatter):
                 record.exc_text = self.formatException(record.exc_info)
         if record.exc_text:
             msg = f"{msg}\n{record.exc_text}"
+        msg = redact_secrets(msg)
 
         # Komponentenname kürzen
         name = record.name
@@ -63,7 +80,12 @@ class _JsonLineFormatter(logging.Formatter):
         }, ensure_ascii=False)
 
 
-_CONSOLE_FMT = logging.Formatter(
+class _RedactingConsoleFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(record))
+
+
+_CONSOLE_FMT = _RedactingConsoleFormatter(
     "%(asctime)s  %(levelname)-8s  %(name)-22s  %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )

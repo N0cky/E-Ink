@@ -18,7 +18,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import dotenv_values, load_dotenv
+import re
+
+from dotenv import dotenv_values
 from PIL import ImageFont
 
 
@@ -40,7 +42,9 @@ def resolve_env_file_path() -> Path:
 
 
 ENV_FILE_PATH = resolve_env_file_path()
-load_dotenv(ENV_FILE_PATH)
+# Bewusst KEIN load_dotenv(): Settings leben ausschließlich in RuntimeConfig,
+# nicht in os.environ. Sonst könnte ein Wert wie HTTPS_PROXY aus der
+# Settings-Datei das Verhalten von requests beeinflussen.
 
 # Ausgabepfad: per PLEXINK_OUTPUT_DIR überschreibbar (Docker: /output)
 _output_env = os.environ.get("PLEXINK_OUTPUT_DIR", "").strip()
@@ -584,12 +588,31 @@ def get_csv_setting(name: str) -> tuple[str, ...]:
 # Env-IO
 # ---------------------------------------------------------------------------
 
+_ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# Zeichen, bei denen der Wert in Anführungszeichen muss, damit dotenv ihn
+# unverändert zurückliest (# wäre sonst ein Kommentar, Leerzeichen am Rand
+# gingen verloren, Quotes/Backslashes würden interpretiert).
+_ENV_NEEDS_QUOTING_RE = re.compile(r"""[#"'\\\s$`]""")
+
+
+def format_env_value(value) -> str:
+    """Formatiert einen Wert für eine KEY=VALUE-Zeile, sodass dotenv ihn exakt zurückliest."""
+    text = as_env_value(value)
+    # Zeilenumbrüche würden neue Keys injizieren – niemals durchlassen
+    text = text.replace("\r", " ").replace("\n", " ")
+    if text == "" or not _ENV_NEEDS_QUOTING_RE.search(text):
+        return text
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def read_env_settings() -> dict[str, str]:
     if not ENV_FILE_PATH.exists():
         return {}
     return {
         key: as_env_value(value)
-        for key, value in dotenv_values(ENV_FILE_PATH).items()
+        # interpolate=False: ein "${HOME}" im Wert bleibt Text
+        for key, value in dotenv_values(ENV_FILE_PATH, interpolate=False).items()
         if value is not None
     }
 
@@ -598,6 +621,11 @@ def write_env_settings(updates: dict[str, str]) -> None:
     """Schreibt die aktive Env-Konfigurationsdatei atomar via Temp-Datei + rename."""
     ENV_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     lines = ENV_FILE_PATH.read_text(encoding="utf-8").splitlines() if ENV_FILE_PATH.exists() else []
+
+    for key in updates:
+        if not _ENV_KEY_RE.match(key):
+            raise ValueError(f"Ungültiger Settings-Key: {key!r}")
+
     remaining = dict(updates)
     new_lines: list[str] = []
 
@@ -608,16 +636,16 @@ def write_env_settings(updates: dict[str, str]) -> None:
             continue
         key = line.split("=", 1)[0].strip()
         if key in remaining:
-            new_lines.append(f"{key}={remaining.pop(key)}")
+            new_lines.append(f"{key}={format_env_value(remaining.pop(key))}")
         else:
             new_lines.append(line)
 
     for key in SETTINGS_FIELD_ORDER:
         if key in remaining:
-            new_lines.append(f"{key}={remaining.pop(key)}")
+            new_lines.append(f"{key}={format_env_value(remaining.pop(key))}")
 
     for key, value in remaining.items():
-        new_lines.append(f"{key}={value}")
+        new_lines.append(f"{key}={format_env_value(value)}")
 
     content = "\n".join(new_lines).rstrip() + "\n"
     tmp = ENV_FILE_PATH.with_suffix(".tmp")
@@ -751,9 +779,6 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         settings_values=normalized_settings,
     )
 
-    for key, value in normalized_settings.items():
-        os.environ[key] = as_env_value(value)
-
 
 def get_settings_values() -> dict[str, str]:
     """Gibt alle aktuellen Konfigurationswerte als String-Dict zurück."""
@@ -769,7 +794,8 @@ def collect_settings_form_data(form, all_fields: list[dict]) -> dict[str, str]:
     current_values = get_settings_values()
     for f in all_fields:
         name = f["name"]
-        if name == "PLEX_TOKEN" and not form.get(name, "").strip():
+        if f.get("type") == "password" and not form.get(name, "").strip():
+            # Passwort-Felder werden leer ausgeliefert; leer abschicken = beibehalten
             updates[name] = current_values.get(name, "")
         elif f.get("type") in ("checkbox_group", "priority_list"):
             updates[name] = ",".join(form.getlist(name))

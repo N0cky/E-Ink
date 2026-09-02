@@ -262,9 +262,10 @@ input::placeholder { color: var(--muted); }
 
     {% elif f.type == 'password' %}
     <div class="pw-wrap">
+        {# Secrets werden nie ins HTML geschrieben. Leer abschicken = Wert beibehalten. #}
         <input id="{{ f.name }}" name="{{ f.name }}" type="password"
-               value="{{ cur }}" placeholder="{{ f.placeholder | default('') }}"
-               spellcheck="false" autocomplete="current-password">
+               value="" placeholder="{{ 'Gesetzt – leer lassen zum Beibehalten' if cur else (f.placeholder | default('')) }}"
+               spellcheck="false" autocomplete="off">
         <button class="pw-toggle" type="button" aria-label="Passwort anzeigen"
                 onclick="togglePw(this)">👁</button>
     </div>

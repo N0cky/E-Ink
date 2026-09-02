@@ -49,5 +49,7 @@ def download_image(url: str | None) -> Image.Image | None:
         response.raise_for_status()
         return Image.open(io.BytesIO(response.content)).convert("RGB")
     except Exception as exc:
-        log.error(f"download_image: {exc}", exc_info=True)
+        # Netzwerkfehler sind erwartbar – Warning ohne Traceback. Secrets in
+        # URLs werden vom Logger maskiert.
+        log.warning(f"download_image: {exc}")
         return None

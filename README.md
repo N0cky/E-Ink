@@ -165,12 +165,20 @@ docker run --rm -p 8787:8787 \
 The container starts through Gunicorn:
 
 ```bash
-gunicorn --workers 1 --bind 0.0.0.0:8787 wsgi:app
+gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:8787 wsgi:app
 ```
 
-The container intentionally uses **one worker**. The project runs its own background worker for rendering and module rotation, so multiple Gunicorn workers would otherwise start multiple parallel render loops.
+The container intentionally uses **one worker**. The project runs its own background worker for rendering and module rotation, so multiple Gunicorn workers would otherwise start multiple parallel render loops. The four threads keep the ESP32 endpoints responsive while someone is using the web UI.
 
 For local development, `python app/server.py` remains the simplest path. In Docker or production-like environments, the project should run through Gunicorn as a WSGI server.
+
+### Security Notes
+
+- The web UI has **no authentication by default**. It is meant for a trusted home network.
+- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect the dashboard, settings, logs and all `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/ack`, `/health`) stay open so the device does not need credentials.
+- Secrets such as the Plex token or the Steam API key are never written into the settings page HTML. The field shows as empty; leaving it empty on save keeps the stored value.
+- Query parameters that carry secrets (`X-Plex-Token`, `key`, `token`, …) are masked in every log line.
+- Values in `config/settings.env` are written quoted when needed and read without variable interpolation. Settings are never exported to the process environment.
 
 ---
 
@@ -198,7 +206,8 @@ Typical Unraid mapping:
 - Port:
   - `8787` container -> `8787` host
 - Environment:
-  - `PLEXINK_CONFIG_FILE=/config/settings.env`
+  - `PLEXINK_CONFIG_FILE=/config/settings.env` (already the image default)
+  - `PLEXINK_UI_PASSWORD=...` (optional, protects the web UI with Basic Auth)
 - AppData / volumes:
   - `/mnt/user/appdata/pleximagee-ink/config` -> `/config`
   - `/mnt/user/appdata/pleximagee-ink/output` -> `/output`

@@ -55,6 +55,38 @@ _registry.reload_modules()
 
 
 # ---------------------------------------------------------------------------
+# Optionaler UI-Schutz per Basic Auth (PLEXINK_UI_PASSWORD)
+# ---------------------------------------------------------------------------
+
+# Endpunkte, die der ESP32 ohne Auth erreichen muss. Der Rest (Dashboard,
+# Settings, Logs, alle /api/*) wird geschützt, sobald ein Passwort gesetzt ist.
+_PUBLIC_PATHS = ("/hash", "/meta.json", "/current.png", "/current.bmp", "/ack", "/health")
+_PUBLIC_PREFIXES = ("/static/",)
+
+
+def _ui_password() -> str:
+    return os.environ.get("PLEXINK_UI_PASSWORD", "").strip()
+
+
+@app.before_request
+def _require_ui_password():
+    password = _ui_password()
+    if not password:
+        return None
+    path = request.path
+    if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES):
+        return None
+    auth = request.authorization
+    if auth is not None and auth.type == "basic" and auth.password == password:
+        return None
+    return (
+        "Authentifizierung erforderlich.",
+        401,
+        {"WWW-Authenticate": 'Basic realm="PlexImageE-Ink", charset="UTF-8"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # ESP32 API – globaler Render-Zustand
 # ---------------------------------------------------------------------------
 

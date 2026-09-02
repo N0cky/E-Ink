@@ -15,3 +15,4 @@ config/*.env
 bin
 dotenv
 python_dotenv-*.dist-info
+.env
