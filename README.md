@@ -31,6 +31,7 @@ Supported output modes:
 - **Steam integration** – shows the currently played Steam game for a configured profile with cover art, avatar, and status
 - **DWD weather** – current conditions, hourly timeline, multi-day forecast, UV index, and pollen data from the German Weather Service
 - **Tagesschau news** – current news cards with thumbnail and teaser text
+- **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours included, with a `{year}` placeholder so the URL never needs a yearly update
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
 - **Modular architecture** – add new content sources as standalone modules without touching the core framework
 - **Dark and light themes** – optimized for OLED-like displays and Waveshare Spectra 6 E-Ink panels
@@ -323,6 +324,10 @@ PlexImageE-Ink/
 │   │   ├── dwd_pollen.py       # Pollen data source
 │   │   ├── dwd_uv.py           # UV index data source
 │   │   └── renderer.py         # Image rendering
+│   ├── garbage/
+│   │   ├── __init__.py         # Müllabfuhr module (priority 105)
+│   │   ├── data_source.py      # ICS parser, {year} handling, bin colour mapping
+│   │   └── renderer.py         # Next pickup hero + upcoming list
 │   ├── gallery/
 │   │   ├── __init__.py         # Module entry point
 │   │   ├── data_source.py      # File discovery and image selection
