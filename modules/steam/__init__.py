@@ -13,7 +13,7 @@ from typing import Any
 from PIL import Image
 
 from app.config import get_bool_setting, get_cfg, get_setting
-from app.http_client import download_image
+from app.http_client import download_image_cached
 from app.logger import get_logger
 from app.module_base import PlexInkModule
 
@@ -107,7 +107,7 @@ class SteamModule(PlexInkModule):
 
         cfg = get_cfg()
         artwork = download_steam_artwork(content.get("gameid", ""), content.get("avatarfull", ""))
-        avatar = download_image(content.get("avatarfull", ""))
+        avatar = download_image_cached(content.get("avatarfull", ""), ttl_seconds=6 * 3600)
         if artwork is None and avatar is not None:
             artwork = avatar
         if artwork is None:

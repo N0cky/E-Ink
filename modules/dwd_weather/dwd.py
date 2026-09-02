@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 
 from app.config import (
+    local_tz,
     get_cfg,
     get_int_setting,
     get_setting,
@@ -260,7 +261,9 @@ def build_dwd_weather_summary(payload: dict, station_id: str) -> dict | None:
                 today_dt = None
         for index in range(len(temperatures)):
             point_ts_ms = start + (index * step)
-            point_dt    = datetime.fromtimestamp(point_ts_ms / 1000)
+            # tz-aware: im Container ist die Systemzeit UTC, die Stunden-
+            # labels müssen aber in der konfigurierten Zeitzone stehen
+            point_dt    = datetime.fromtimestamp(point_ts_ms / 1000, tz=local_tz())
             point_date_obj = point_dt.date()
             point_date  = point_dt.strftime("%Y-%m-%d")
 

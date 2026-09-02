@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from app.config import format_weekday_short
 from app.module_services import ModuleFetchServices, ModuleRenderServices
 from app.idle_news_rendering import draw_lines, fit_wrapped_text
 
@@ -301,9 +302,10 @@ def format_temp(temp_c: float | None) -> str:
 
 
 def format_day_label(day_date: str) -> str:
+    """'Mi 03.09.' – deutscher Wochentag unabhängig vom System-Locale."""
     try:
         parsed = datetime.strptime(day_date, "%Y-%m-%d")
-        return parsed.strftime("%a %d.%m.")
+        return f"{format_weekday_short(parsed)} {parsed.strftime('%d.%m.')}"
     except ValueError:
         return day_date
 

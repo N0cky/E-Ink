@@ -9,15 +9,16 @@ Unterstützt:
 
 from __future__ import annotations
 
-import functools
 import io
 import re
+import threading
+import time
 
 from PIL import Image
 import requests
 
 from app.config import get_setting
-from app.http_client import HTTP_SESSION, download_image
+from app.http_client import HTTP_SESSION, download_image, download_image_cached
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -117,8 +118,17 @@ def _download_steam_candidate(url: str | None) -> Image.Image | None:
         return None
 
 
-@functools.lru_cache(maxsize=64)
+_PROFILE_ID_TTL_SECONDS = 24 * 3600
+_profile_id_cache: dict[tuple[str, str], tuple[float, str]] = {}
+_profile_id_lock = threading.Lock()
+
+
 def resolve_steam_profile_to_id(profile_input: str, api_key: str) -> str | None:
+    """
+    Löst Vanity-Namen/Profil-URLs zur SteamID64 auf. Erfolgreiche Auflösungen
+    werden 24 h gecacht. Fehlschläge (API down, Tippfehler) werden NICHT
+    gecacht, damit ein transienter Fehler nicht bis zum Neustart klebt.
+    """
     parsed = parse_steam_profile_input(profile_input)
     if parsed is None:
         return None
@@ -127,20 +137,31 @@ def resolve_steam_profile_to_id(profile_input: str, api_key: str) -> str | None:
     if kind == "steamid":
         return value
 
+    cache_key = (profile_input, api_key)
+    now = time.time()
+    with _profile_id_lock:
+        cached = _profile_id_cache.get(cache_key)
+        if cached and now - cached[0] < _PROFILE_ID_TTL_SECONDS:
+            return cached[1]
+
     try:
         payload = _steam_api_get(
             "/ISteamUser/ResolveVanityURL/v1/",
             {"key": api_key, "vanityurl": value},
         )
     except Exception as exc:
-        log.error(f"resolve_steam_profile_to_id: {exc}", exc_info=True)
+        log.warning(f"resolve_steam_profile_to_id: {exc}")
         return None
 
     response = payload.get("response", {})
     if int(response.get("success", 0)) != 1:
         return None
     steam_id = str(response.get("steamid", "")).strip()
-    return steam_id or None
+    if not steam_id:
+        return None
+    with _profile_id_lock:
+        _profile_id_cache[cache_key] = (now, steam_id)
+    return steam_id
 
 
 def get_player_summary() -> dict | None:
@@ -271,13 +292,46 @@ def get_store_item_asset_urls(game_id: str, country_code: str = "DE") -> list[st
     return deduped
 
 
+_ARTWORK_TTL_SECONDS = 6 * 3600
+_ARTWORK_NEGATIVE_TTL_SECONDS = 600
+_artwork_cache: dict[str, tuple[float, Image.Image | None]] = {}
+_artwork_lock = threading.Lock()
+
+
 def download_steam_artwork(game_id: str, fallback_avatar_url: str = "") -> Image.Image | None:
+    """
+    Cover für ein Spiel. Das Probing über bis zu ~20 Kandidaten-URLs ist
+    teuer, deshalb wird das Ergebnis pro game_id gecacht (auch "nichts
+    gefunden", kürzer). Bei laufendem Spiel wird jede Minute neu gerendert.
+    """
+    now = time.time()
+    if game_id:
+        with _artwork_lock:
+            cached = _artwork_cache.get(game_id)
+            if cached:
+                fetched_at, image = cached
+                ttl = _ARTWORK_TTL_SECONDS if image is not None else _ARTWORK_NEGATIVE_TTL_SECONDS
+                if now - fetched_at < ttl:
+                    return image.copy() if image is not None else download_image_cached(fallback_avatar_url)
+
+    found: Image.Image | None = None
     for url in get_game_artwork_urls(game_id):
-        image = _download_steam_candidate(url)
-        if image is not None:
-            return image
-    for url in get_store_item_asset_urls(game_id):
-        image = _download_steam_candidate(url)
-        if image is not None:
-            return image
-    return download_image(fallback_avatar_url)
+        found = _download_steam_candidate(url)
+        if found is not None:
+            break
+    if found is None:
+        for url in get_store_item_asset_urls(game_id):
+            found = _download_steam_candidate(url)
+            if found is not None:
+                break
+
+    if game_id:
+        with _artwork_lock:
+            _artwork_cache[game_id] = (now, found.copy() if found is not None else None)
+            while len(_artwork_cache) > 16:
+                oldest = min(_artwork_cache, key=lambda k: _artwork_cache[k][0])
+                del _artwork_cache[oldest]
+
+    if found is not None:
+        return found
+    return download_image_cached(fallback_avatar_url)

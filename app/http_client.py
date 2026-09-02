@@ -11,6 +11,8 @@ Abhängigkeiten zu Modul-spezifischem Code.
 from __future__ import annotations
 
 import io
+import threading
+import time
 
 import requests
 from PIL import Image
@@ -53,3 +55,51 @@ def download_image(url: str | None) -> Image.Image | None:
         # URLs werden vom Logger maskiert.
         log.warning(f"download_image: {exc}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Bild-Download mit Cache (für Artwork, das über mehrere Renders gleich bleibt)
+# ---------------------------------------------------------------------------
+
+IMAGE_CACHE_MAX_ENTRIES = 32
+_image_cache: dict[str, dict] = {}
+_image_cache_lock = threading.Lock()
+
+
+def download_image_cached(
+    url: str | None,
+    ttl_seconds: int = 1800,
+    negative_ttl_seconds: int = 300,
+) -> Image.Image | None:
+    """
+    Wie download_image(), aber mit In-Memory-Cache pro URL.
+    Erfolgreiche Downloads bleiben ttl_seconds gültig, Fehlschläge
+    negative_ttl_seconds (damit eine tote URL nicht pro Render neu probiert wird).
+    Gibt immer eine Kopie zurück, damit Aufrufer das Bild verändern dürfen.
+    """
+    if not url:
+        return None
+    now = time.time()
+
+    with _image_cache_lock:
+        entry = _image_cache.get(url)
+        if entry is not None:
+            ttl = ttl_seconds if entry["image"] is not None else negative_ttl_seconds
+            if now - entry["fetched_at"] < ttl:
+                img = entry["image"]
+                return img.copy() if img is not None else None
+
+    image = download_image(url)
+
+    with _image_cache_lock:
+        _image_cache[url] = {"fetched_at": now, "image": image.copy() if image is not None else None}
+        while len(_image_cache) > IMAGE_CACHE_MAX_ENTRIES:
+            oldest = min(_image_cache, key=lambda k: _image_cache[k]["fetched_at"])
+            del _image_cache[oldest]
+
+    return image
+
+
+def clear_image_cache() -> None:
+    with _image_cache_lock:
+        _image_cache.clear()

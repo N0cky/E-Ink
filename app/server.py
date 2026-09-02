@@ -14,7 +14,6 @@ import os
 import time
 import threading
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask, redirect, render_template, request, send_file, jsonify, url_for
 from PIL import Image, ImageDraw
@@ -113,12 +112,8 @@ _force_render_requested = False
 
 
 def _get_local_now() -> datetime:
-    cfg = get_cfg()
-    try:
-        tz = ZoneInfo(cfg.timezone)
-    except ZoneInfoNotFoundError:
-        tz = timezone.utc
-    return datetime.now(tz)
+    from app.config import now_local
+    return now_local()
 
 
 def _get_night_mode_state(now_local: datetime | None = None) -> dict[str, int | bool | str]:
@@ -822,27 +817,39 @@ def api_logs():
     level_order = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "WARN": 30, "ERROR": 40, "CRITICAL": 50}
     min_level   = level_order.get(level_filter, 0) if level_filter != "ALL" else 0
 
+    # Neueste Datei zuerst, Zeilen rückwärts, Abbruch sobald limit erreicht.
+    # So wird nicht bei jedem Poll die gesamte 7-Tage-Historie geparst.
     entries: list[dict] = []
-    for lf in sorted(LOGS_DIR.glob("app.jsonl*"), key=lambda f: f.stat().st_mtime):
+    for lf in sorted(LOGS_DIR.glob("app.jsonl*"), key=lambda f: f.stat().st_mtime, reverse=True):
+        if len(entries) >= limit:
+            break
         try:
-            for line in lf.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = _json.loads(line)
-                    if level_order.get(entry.get("level", "DEBUG"), 0) < min_level:
-                        continue
-                    if search and search not in (entry.get("msg") or "").lower() \
-                               and search not in (entry.get("name") or "").lower():
-                        continue
-                    entries.append(entry)
-                except _json.JSONDecodeError:
-                    pass
+            lines = lf.read_text(encoding="utf-8", errors="replace").splitlines()
         except Exception as exc:
             log.warning(f"api_logs: Fehler beim Lesen von {lf.name}: {exc}")
+            continue
+        for line in reversed(lines):
+            if len(entries) >= limit:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            # Billige Vorfilter vor dem JSON-Parse
+            if search and search not in line.lower():
+                continue
+            try:
+                entry = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if level_order.get(entry.get("level", "DEBUG"), 0) < min_level:
+                continue
+            if search and search not in (entry.get("msg") or "").lower() \
+                       and search not in (entry.get("name") or "").lower():
+                continue
+            entries.append(entry)
 
-    return jsonify(entries[-limit:])
+    entries.reverse()   # chronologisch, wie bisher
+    return jsonify(entries)
 
 
 @app.route("/api/status", methods=["GET"])

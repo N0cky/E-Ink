@@ -4,11 +4,9 @@ Bild-Kompositions-Helpers: Skalierung, Overlays, Gradienten, Fortschrittsbalken.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from PIL import Image, ImageDraw, ImageFilter
 
-from app.config import get_bool_setting, get_cfg, load_font
+from app.config import get_bool_setting, get_cfg, load_font, now_local
 from app.idle_news_rendering import draw_lines, fit_wrapped_text
 
 
@@ -217,7 +215,7 @@ def draw_updated_timestamp(
 ) -> None:
     if not show:
         return
-    stamp = datetime.now().strftime("Aktualisiert: %d.%m.%Y %H:%M")
+    stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
     draw.text((text_x, text_y), stamp, font=font, fill=(255, 255, 255, 230))
 
 
@@ -517,7 +515,7 @@ def draw_video_overlay_light(base: Image.Image, session: dict, cover_bottom: int
     _draw_light_progress_bar(draw, calc_progress(session), x, py,
                              cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress)
     if show_updated:
-        stamp = datetime.now().strftime("Aktualisiert: %d.%m.%Y %H:%M")
+        stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
         draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, TIMESTAMP_Y), stamp,
                   font=font_small, fill=LIGHT_TEXT_META)
     return img
@@ -586,7 +584,7 @@ def draw_music_overlay_light(base: Image.Image, session: dict, cover_bottom: int
     _draw_light_progress_bar(draw, calc_progress(session), x, py,
                              cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress)
     if show_updated:
-        stamp = datetime.now().strftime("Aktualisiert: %d.%m.%Y %H:%M")
+        stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
         draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, TIMESTAMP_Y), stamp,
                   font=font_small, fill=LIGHT_TEXT_META)
     return img

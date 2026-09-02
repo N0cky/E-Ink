@@ -21,7 +21,7 @@ from app.config import (
     VIDEO_SESSION_FIELDS,
     TRACK_SESSION_FIELDS,
 )
-from app.http_client import HTTP_SESSION, download_image
+from app.http_client import HTTP_SESSION, download_image, download_image_cached
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -132,13 +132,28 @@ def select_preferred_session(sessions: list[dict]) -> dict | None:
     return min(sessions, key=sort_key)
 
 
+_ERROR_LOG_INTERVAL_SECONDS = 600
+_last_error_logged_at = 0.0
+
+
 def get_active_session() -> dict | None:
+    global _last_error_logged_at
     try:
         resp = plex_get("/status/sessions")
         root = ET.fromstring(resp.text)
-        return select_preferred_session(collect_sessions(root))
+        session = select_preferred_session(collect_sessions(root))
+        if _last_error_logged_at:
+            log.info("Plex ist wieder erreichbar")
+            _last_error_logged_at = 0.0
+        return session
     except Exception as exc:
-        log.error(f"get_active_session: {exc}", exc_info=True)
+        # Nicht erreichbarer Plex ist ein erwartbarer Zustand: eine Warning,
+        # dann alle 10 min eine Erinnerung – kein Traceback pro Tick.
+        import time as _time
+        now = _time.time()
+        if now - _last_error_logged_at >= _ERROR_LOG_INTERVAL_SECONDS:
+            log.warning(f"Plex nicht erreichbar: {exc}")
+            _last_error_logged_at = now
         return None
 
 
@@ -181,8 +196,10 @@ def get_artwork_candidates(session: dict) -> list[str]:
 def download_session_artwork(session: dict | None) -> Image.Image | None:
     if not session:
         return None
+    # Gecacht: bei laufender Wiedergabe wird jede Minute neu gerendert,
+    # das Poster soll dabei nicht jedes Mal vom Plex-Server geladen werden.
     for image_path in get_artwork_candidates(session):
-        image = download_image(build_plex_image_url(image_path))
+        image = download_image_cached(build_plex_image_url(image_path), ttl_seconds=3600, negative_ttl_seconds=60)
         if image is not None:
             return image
     return None

@@ -171,8 +171,15 @@ class PlexModule(PlexInkModule):
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def is_configured(env: dict[str, str]) -> bool:
+        return bool(env.get("PLEX_BASE_URL", "").strip() and env.get("PLEX_TOKEN", "").strip())
+
     def is_enabled(self, env: dict[str, str]) -> bool:
-        return env.get("PLEX_MODULE_ENABLED", "true").strip().lower() == "true"
+        # Ohne URL und Token ist das Modul nicht nutzbar – dann gar nicht erst
+        # pollen (sonst ein Fehler pro Tick ab Erstinstallation).
+        enabled = env.get("PLEX_MODULE_ENABLED", "true").strip().lower() == "true"
+        return enabled and self.is_configured(env)
 
     def fetch_content(self, env: dict[str, str]) -> dict | None:
         """
@@ -256,7 +263,7 @@ class PlexModule(PlexInkModule):
         return {
             "ok": True,
             "enabled": self.is_enabled(env),
-            "configured": bool(env.get("PLEX_BASE_URL", "").strip() and env.get("PLEX_TOKEN", "").strip()),
+            "configured": self.is_configured(env),
         }
 
     def validate_settings(self, updates: dict[str, str], env: dict[str, str]) -> list[str]:

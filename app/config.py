@@ -821,6 +821,38 @@ def get_settings_runtime_summary() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Lokale Zeit (Container laufen in UTC – nie datetime.now() ohne TZ nutzen)
+# ---------------------------------------------------------------------------
+
+WEEKDAYS_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def local_tz():
+    """ZoneInfo der konfigurierten Zeitzone, Fallback Europe/Berlin, dann UTC."""
+    from datetime import timezone as _tz
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    name = (_cfg.timezone if _cfg is not None else "") or "Europe/Berlin"
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        try:
+            return ZoneInfo("Europe/Berlin")
+        except ZoneInfoNotFoundError:
+            return _tz.utc
+
+
+def now_local():
+    """Aktuelle Zeit als tz-aware datetime in der konfigurierten Zeitzone."""
+    from datetime import datetime as _dt
+    return _dt.now(local_tz())
+
+
+def format_weekday_short(d) -> str:
+    """'Mi' für einen date/datetime – unabhängig vom System-Locale."""
+    return WEEKDAYS_DE[d.weekday()]
+
+
+# ---------------------------------------------------------------------------
 # Font-Loading mit Cache
 # ---------------------------------------------------------------------------
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from PIL import Image, ImageDraw
 
-from app.config import load_font
+from app.config import load_font, now_local
 from app.idle_news_rendering import draw_lines, fit_wrapped_text
 from app.image_rendering import (
     create_centered_cover_canvas,
@@ -90,7 +88,7 @@ def render_steam_dark(
     draw_lines(draw, text_x, cur_y, meta_lines, meta_font, (205, 212, 220, 235), meta_lh, meta_sp)
 
     if show_timestamp:
-        stamp = datetime.now().strftime("Aktualisiert: %d.%m.%Y %H:%M")
+        stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
         draw.text((render_width - 420, 42), stamp, font=load_font(26, False), fill=(220, 225, 232, 220))
 
     return base.convert("RGB")
@@ -162,7 +160,7 @@ def render_steam_light(
     draw_lines(draw, text_x, cur_y, meta_lines, meta_font, (118, 106, 92, 255), meta_lh, meta_sp)
 
     if show_timestamp:
-        stamp = datetime.now().strftime("Aktualisiert: %d.%m.%Y %H:%M")
+        stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
         draw.text((render_width - 420, 40), stamp, font=load_font(24, False), fill=(132, 120, 108, 255))
 
     return base.convert("RGB")

@@ -111,7 +111,9 @@ def _setup() -> logging.Logger:
         utc=False,
     )
     fh.setFormatter(_JsonLineFormatter())
-    fh.setLevel(logging.DEBUG)
+    # Datei auf INFO: DEBUG-Rauschen (Cover-Probing, Cache-Treffer) bläht die
+    # JSONL auf und macht /api/logs langsam. Konsole bleibt DEBUG für die Entwicklung.
+    fh.setLevel(logging.INFO)
     root.addHandler(fh)
 
     # Konsolen-Handler: menschenlesbar
