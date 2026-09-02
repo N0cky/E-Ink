@@ -391,8 +391,29 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
                 return last_state_key
         return state_key
 
-    # ── 2. Idle-Module in Rotation (MODULE_PRIORITY >= 10) ───────────────────
+    # ── 2a. Dashboard: alle aktiven Idle-Module in einem Bild ─────────────────
     enabled_idle, rotation_seconds = _get_effective_idle_modules(env)
+    cfg = get_cfg()
+    if enabled_idle and cfg.idle_layout == "dashboard":
+        from app.dashboard import compose_dashboard
+        try:
+            result = compose_dashboard(env, cfg, _dashboard_modules(enabled_idle, cfg))
+        except Exception as exc:
+            log.error(f"dashboard: {exc}", exc_info=True)
+            result = None
+        if result is not None:
+            image, state_key = result
+            needs_refresh = any(m.should_refresh(env) for m in enabled_idle)
+            if state_key != last_state_key or needs_refresh:
+                try:
+                    _save_image(image, state_key, "dashboard")
+                except Exception as exc:
+                    log.error(f"render [dashboard]: {exc}", exc_info=True)
+                    return last_state_key
+            return state_key
+        # kein Inhalt in keiner Kachel → normale Rotation als Fallback
+
+    # ── 2b. Idle-Module in Rotation (MODULE_PRIORITY >= 10) ──────────────────
     if enabled_idle:
         slot = int(time.time() // rotation_seconds)
 
@@ -425,6 +446,15 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
             log.error(f"render placeholder: {exc}", exc_info=True)
             return last_state_key
     return "__no_content__"
+
+
+def _dashboard_modules(enabled_idle: list, cfg) -> list:
+    """Aktive Idle-Module in der Reihenfolge der Kachel-Konfiguration (Rest hinten dran)."""
+    by_id = {m.MODULE_ID: m for m in enabled_idle}
+    ordered = [by_id[mid] for mid, _ in cfg.dashboard_tiles if mid in by_id]
+    if cfg.dashboard_tiles:
+        return ordered
+    return list(enabled_idle)
 
 
 def render_image() -> str | None:
@@ -581,6 +611,7 @@ _FRAMEWORK_RUNTIME_CARDS = (
     ("rotation",      "Rotation"),
     ("output_format", "Ausgabeformat"),
     ("idle_modules",  "Idle-Module"),
+    ("idle_layout",   "Idle-Darstellung"),
     ("idle_rotation", "Idle-Rotation"),
     ("night_mode",    "Nachtmodus"),
 )
@@ -701,17 +732,26 @@ def render_module_preview(module_id: str, theme: str | None = None, device: bool
     from app.config import override_runtime_config
 
     mod = _registry.get_module_by_id(module_id)
-    if mod is None:
+    if mod is None and module_id != "dashboard":
         raise LookupError(module_id)
 
     with _render_lock:
         changes = {"display_theme": theme} if theme else {}
         with override_runtime_config(**changes):
             env = get_settings_values()
-            content = mod.fetch_content(env)
-            if content is None:
-                return None
-            image = mod.render(env, content)
+            if module_id == "dashboard":
+                from app.dashboard import compose_dashboard
+                cfg = get_cfg()
+                enabled_idle = [m for m in _registry.get_idle_modules() if m.is_enabled(env)]
+                result = compose_dashboard(env, cfg, _dashboard_modules(enabled_idle, cfg))
+                if result is None:
+                    return None
+                image = result[0]
+            else:
+                content = mod.fetch_content(env)
+                if content is None:
+                    return None
+                image = mod.render(env, content)
 
     if device:
         _, image = convert_to_spectra6(image)

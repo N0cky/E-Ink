@@ -99,6 +99,13 @@ class GarbageModule(PlexInkModule):
         from .renderer import render_garbage_module
         return render_garbage_module(ModuleRenderServices.from_runtime(), content)
 
+    def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
+        from .renderer import render_garbage_module
+        base = ModuleRenderServices.from_runtime()
+        services = ModuleRenderServices(render_width=width, render_height=height,
+                                        display_theme=base.display_theme, load_font=base.load_font)
+        return render_garbage_module(services, content, compact=True)
+
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .data_source import should_refresh_garbage
         return should_refresh_garbage()

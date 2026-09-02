@@ -276,6 +276,28 @@ def get_background_poll_seconds(self, env: dict[str, str]) -> int | None:
 ```
 
 
+### `render_tile(self, env, content, width, height)`
+
+Kompakte Darstellung fuer den Dashboard-Modus (`IDLE_LAYOUT=dashboard`). Das Framework
+ruft `fetch_content()` wie gewohnt auf und danach `render_tile()` mit der Kachelgroesse.
+Mehrere Module teilen sich so ein Bild (Reihenfolge und Hoehen aus `DASHBOARD_TILES`).
+
+- Rueckgabe `None` (Standard): Modul kann keine Kachel liefern und wird im Dashboard uebersprungen
+- Rueckgabe `PIL.Image` in `width x height`: wird eingesetzt
+
+Die Kachel sollte sich selbst benennen (kleine Titelzeile), aber kein Datum zeigen – das
+steht in der Kopfzeile des Dashboards. Bewaehrt hat sich, den normalen Renderer mit einem
+`compact=True`-Parameter wiederzuverwenden und die Skalierung an der Breite auszurichten.
+
+```python
+def render_tile(self, env, content, width, height):
+    from .renderer import render_example
+    base = ModuleRenderServices.from_runtime()
+    services = ModuleRenderServices(render_width=width, render_height=height,
+                                    display_theme=base.display_theme, load_font=base.load_font)
+    return render_example(services, content, compact=True)
+```
+
 ## Dynamische Feldoptionen
 
 Wenn ein Feld Optionen dynamisch laden soll:

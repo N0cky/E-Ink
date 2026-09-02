@@ -136,7 +136,8 @@ def _short_date(d: date) -> str:
     return f"{format_weekday_short(d)} {d.day:02d}.{d.month:02d}."
 
 
-def render_garbage_module(services: ModuleRenderServices, content: object) -> Image.Image:
+def render_garbage_module(services: ModuleRenderServices, content: object, compact: bool = False) -> Image.Image:
+    """compact=True: Dashboard-Kachel – kleine Titelzeile, kleinerer Hero."""
     data = content if isinstance(content, dict) else {}
     rw, rh = services.render_width, services.render_height
     pal = get_palette(services.display_theme)
@@ -146,30 +147,36 @@ def render_garbage_module(services: ModuleRenderServices, content: object) -> Im
     img = Image.new("RGBA", (rw, rh), pal["bg"])
     draw = ImageDraw.Draw(img, "RGBA")
 
-    margin = max(40, rw // 20)
-    scale = min(rw / 1200.0, rh / 1600.0)
+    margin = max(40, rw // 20) if not compact else max(24, rw // 30)
+    scale = max(0.5, min(rw / 1200.0, 1.4)) if compact else min(rw / 1200.0, rh / 1600.0)
 
     def px(v: float) -> int:
         return max(1, int(v * scale))
 
     # ── Kopfzeile ────────────────────────────────────────────────────────────
-    font_date  = load_font(px(32), False)
-    font_title = load_font(px(60), True)
-    draw.text((margin, px(46)), format_date_long(), font=font_date, fill=pal["header"])
-    draw.text((margin, px(86)), "Müllabfuhr", font=font_title, fill=pal["title"])
+    if compact:
+        draw.text((margin, px(14)), "Müllabfuhr", font=load_font(px(26), True), fill=pal["title"])
+        y = px(56)
+    else:
+        font_date  = load_font(px(32), False)
+        font_title = load_font(px(60), True)
+        draw.text((margin, px(46)), format_date_long(), font=font_date, fill=pal["header"])
+        draw.text((margin, px(86)), "Müllabfuhr", font=font_title, fill=pal["title"])
+        y = px(180)
 
     next_day = data.get("next")
     days = data.get("days") or []
-    y = px(180)
 
     # ── Hero: nächster Abfuhrtag ─────────────────────────────────────────────
-    hero_h = px(420)
+    # Kompakt: Hero nimmt höchstens die Hälfte der Kachel, sonst feste Höhe
+    hero_h = min(px(420), max(px(200), (rh - y) // 2)) if compact else px(420)
     hero = (margin, y, rw - margin, y + hero_h)
     draw.rounded_rectangle(hero, radius=0 if flat else px(28), fill=pal["card_fill"],
                            outline=pal["card_outline"], width=4 if flat else 2)
 
     if next_day:
-        bin_w, bin_h = px(210), px(280)
+        bin_h = min(px(280), hero_h - px(60))
+        bin_w = int(bin_h * 0.75)
         bin_x = hero[0] + px(48)
         bin_y = y + (hero_h - bin_h) // 2 + px(10)
         first_color = pal["bins"][next_day["events"][0]["color"]]
@@ -184,16 +191,17 @@ def render_garbage_module(services: ModuleRenderServices, content: object) -> Im
 
         text_x = max(ex, bin_x + bin_w) + px(40)
         text_w = hero[2] - text_x - px(40)
-        font_rel   = load_font(px(78), True)
-        font_when  = load_font(px(32), False)
-        font_type  = load_font(px(44), True)
-        font_label = load_font(px(26), False)
+        small_hero = hero_h < px(320)
+        font_rel   = load_font(px(54 if small_hero else 78), True)
+        font_when  = load_font(px(26 if small_hero else 32), False)
+        font_type  = load_font(px(34 if small_hero else 44), True)
+        font_label = load_font(px(22 if small_hero else 26), False)
 
-        ty = y + px(48)
+        ty = y + px(28 if small_hero else 48)
         draw.text((text_x, ty), next_day["relative"], font=font_rel, fill=pal["accent"] if flat else pal["title"])
-        ty += px(96)
+        ty += px(66 if small_hero else 96)
         draw.text((text_x, ty), format_date_long(next_day["date"]), font=font_when, fill=pal["muted"])
-        ty += px(56)
+        ty += px(42 if small_hero else 56)
         for ev in next_day["events"][:4]:
             type_font, lines, lh, sp, th = fit_wrapped_text(
                 draw, ev["summary"], text_w, px(60), px(44), px(28), load_font, is_bold=True, max_lines=1)
@@ -217,11 +225,15 @@ def render_garbage_module(services: ModuleRenderServices, content: object) -> Im
     font_row_date = load_font(px(30), True)
     font_row_rel  = load_font(px(22), False)
     font_row_type = load_font(px(28), False)
+    row_h = px(84)
+    upcoming = [d for d in days if not next_day or d["date"] != next_day["date"]]
+
+    # Überschrift nur, wenn darunter mindestens eine Zeile Platz hat
+    if y + px(48) + row_h > rh - margin:
+        return img.convert("RGB")
     draw.text((margin, y), f"Nächste {data.get('days_ahead', 14)} Tage", font=font_section, fill=pal["muted"])
     y += px(48)
 
-    row_h = px(84)
-    upcoming = [d for d in days if not next_day or d["date"] != next_day["date"]]
     if not upcoming and next_day and not data.get("next_outside_window"):
         draw.text((margin, y), "Danach keine weiteren Termine im Zeitraum.", font=font_row_type, fill=pal["muted"])
     for day in upcoming:

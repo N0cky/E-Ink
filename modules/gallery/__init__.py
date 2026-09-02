@@ -167,6 +167,15 @@ class GalleryModule(PlexInkModule):
         overlay_mode = env.get("GALLERY_OVERLAY_MODE", "none").strip().lower()
         return render_gallery_image(services, content, fit_mode, overlay_mode)
 
+    def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
+        from .renderer import render_gallery_image
+        base = ModuleRenderServices.from_runtime()
+        services = ModuleRenderServices(render_width=width, render_height=height,
+                                        display_theme=base.display_theme, load_font=base.load_font)
+        fit_mode = env.get("GALLERY_FIT_MODE", "fit_blur_bg").strip().lower()
+        overlay_mode = env.get("GALLERY_OVERLAY_MODE", "none").strip().lower()
+        return render_gallery_image(services, content, fit_mode, overlay_mode)
+
     def get_state_key(self, content: Any) -> str:
         if isinstance(content, dict):
             image_path = str(content.get("image_path", ""))

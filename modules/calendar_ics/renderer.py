@@ -93,7 +93,8 @@ def _day_heading(day: dict) -> str:
     return f"{WEEKDAYS_DE_LONG[d.weekday()]}, {d.day}.{d.month}.  ·  {rel}"
 
 
-def render_calendar_module(services: ModuleRenderServices, content: object) -> Image.Image:
+def render_calendar_module(services: ModuleRenderServices, content: object, compact: bool = False) -> Image.Image:
+    """compact=True: Dashboard-Kachel – kleine Titelzeile statt Datum + großem Titel."""
     data = content if isinstance(content, dict) else {}
     rw, rh = services.render_width, services.render_height
     pal = get_palette(services.display_theme)
@@ -102,34 +103,41 @@ def render_calendar_module(services: ModuleRenderServices, content: object) -> I
 
     img = Image.new("RGBA", (rw, rh), pal["bg"])
     draw = ImageDraw.Draw(img, "RGBA")
-    margin = max(40, rw // 20)
-    scale = min(rw / 1200.0, rh / 1600.0)
+    margin = max(40, rw // 20) if not compact else max(24, rw // 30)
+    scale = max(0.5, min(rw / 1200.0, 1.4)) if compact else min(rw / 1200.0, rh / 1600.0)
 
     def px(v: float) -> int:
         return max(1, int(v * scale))
 
-    # ── Kopfzeile ────────────────────────────────────────────────────────────
-    font_date  = load_font(px(32), False)
-    font_title = load_font(px(60), True)
-    draw.text((margin, px(46)), format_date_long(), font=font_date, fill=pal["header"])
-    draw.text((margin, px(86)), "Kalender", font=font_title, fill=pal["title"])
-
-    # Legende der Quellen rechts oben
     sources = data.get("sources") or []
     font_legend = load_font(px(22), False)
+
+    # ── Kopfzeile ────────────────────────────────────────────────────────────
+    if compact:
+        draw.text((margin, px(14)), "Kalender", font=load_font(px(26), True), fill=pal["title"])
+        legend_y = px(18)
+        y = px(56)
+    else:
+        font_date  = load_font(px(32), False)
+        font_title = load_font(px(60), True)
+        draw.text((margin, px(46)), format_date_long(), font=font_date, fill=pal["header"])
+        draw.text((margin, px(86)), "Kalender", font=font_title, fill=pal["title"])
+        legend_y = px(104)
+        y = px(180)
+
+    # Legende der Quellen rechts oben
     lx = rw - margin
     for src in reversed(sources[:4]):
         label = src.get("label", "")
         tw = int(draw.textlength(label, font=font_legend))
         lx -= tw
-        draw.text((lx, px(104)), label, font=font_legend, fill=pal["muted"])
+        draw.text((lx, legend_y), label, font=font_legend, fill=pal["muted"])
         lx -= px(16)
         col = pal["sources"].get(src.get("color", "blue"), pal["sources"]["blue"])
-        draw.rectangle([(lx - px(14), px(108)), (lx, px(122))], fill=(*col, 255))
+        draw.rectangle([(lx - px(14), legend_y + px(4)), (lx, legend_y + px(18))], fill=(*col, 255))
         lx -= px(34)
 
     days = data.get("days") or []
-    y = px(180)
     font_heading  = load_font(px(30), True)
     font_time     = load_font(px(26), True)
     font_event    = load_font(px(32), False)

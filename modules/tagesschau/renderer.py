@@ -425,6 +425,61 @@ def draw_idle_overlay(
 
 
 # ---------------------------------------------------------------------------
+# Dashboard-Kachel
+# ---------------------------------------------------------------------------
+
+def render_tagesschau_tile(services: ModuleRenderServices, content: object,
+                           width: int, height: int) -> Image.Image:
+    """Kompakt: kleine Titelzeile, dann so viele Karten wie in die Höhe passen."""
+    from .data_source import fetch_tagesschau_image
+
+    news_items = content if isinstance(content, list) else []
+    theme = services.display_theme
+    pal = _news_pal(theme)
+    flat = bool(pal.get("flat"))
+    load_font = services.load_font
+    s = max(0.5, min(width / 1200.0, 1.4))
+
+    if flat:
+        from app.image_rendering import SPECTRA6_COLORS
+        base = Image.new("RGB", (width, height), SPECTRA6_COLORS["white"])
+    elif theme == "light":
+        base = create_tagesschau_idle_background_light(width, height)
+    else:
+        base = create_tagesschau_idle_background(width, height)
+    img = base.convert("RGBA")
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    title_font = load_font(int(26 * s), True)
+    draw.text((int(24 * s), int(14 * s)), "Tagesschau  ·  Aktuelle Schlagzeilen", font=title_font, fill=pal["title_text"])
+
+    card_top = int(56 * s)
+    if not news_items:
+        draw.text((int(24 * s), card_top + int(10 * s)), "Gerade keine Nachrichten verfügbar.",
+                  font=load_font(int(26 * s), False), fill=pal["empty_sub"])
+        return img.convert("RGB")
+
+    min_card_h = int(150 * s)
+    count = max(1, min(len(news_items), (height - card_top - int(16 * s)) // min_card_h))
+    card_gap = int(12 * s)
+    card_h = (height - card_top - int(16 * s)) // count
+
+    font_news_label   = load_font(int(24 * s), True)
+    font_news_title   = load_font(int(30 * s), True)
+    font_news_summary = load_font(int(22 * s), False)
+    for idx, item in enumerate(news_items[:count]):
+        top = card_top + idx * card_h
+        bottom = top + card_h - card_gap
+        draw_tagesschau_card(
+            img, draw, item, top, bottom, width,
+            font_news_label, font_news_title, font_news_summary,
+            load_font, fetch_tagesschau_image, create_rounded_thumbnail,
+            theme=theme,
+        )
+    return img.convert("RGB")
+
+
+# ---------------------------------------------------------------------------
 # Modul-Einstieg
 # ---------------------------------------------------------------------------
 

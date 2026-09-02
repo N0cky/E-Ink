@@ -173,6 +173,38 @@ SETTINGS_FIELDS: list[dict] = [
         ),
     },
     {
+        "name":    "IDLE_LAYOUT",
+        "label":   "Idle-Darstellung",
+        "type":    "select",
+        "section": "framework",
+        "wide":    True,
+        "default": "rotation",
+        "options": [
+            ("rotation",  "Rotation – ein Modul pro Bild, im Wechsel"),
+            ("dashboard", "Dashboard – mehrere Module gleichzeitig als Kacheln"),
+        ],
+        "help": (
+            "Rotation zeigt die aktiven Idle-Module nacheinander als Vollbild. "
+            "Dashboard setzt sie untereinander in ein Bild – weniger Display-Refreshes, "
+            "mehr Information auf einen Blick."
+        ),
+    },
+    {
+        "name":        "DASHBOARD_TILES",
+        "label":       "Dashboard-Kacheln",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        True,
+        "default":     "",
+        "placeholder": "dwd_weather:45, calendar:30, garbage:25",
+        "help": (
+            "Reihenfolge von oben nach unten als 'modul:höhe' in Prozent, kommagetrennt. "
+            "Nur Module mit Kachel-Unterstützung (Wetter, Kalender, Müllabfuhr, Tagesschau, Gallery). "
+            "Leer: alle aktiven Idle-Module gleich hoch."
+        ),
+        "show_when":   {"IDLE_LAYOUT": "dashboard"},
+    },
+    {
         "name":        "IDLE_MODULE_ROTATION_SECONDS",
         "label":       "Idle-Rotation (s)",
         "type":        "number",
@@ -278,6 +310,8 @@ SETTINGS_GROUPS: list[dict] = [
         "desc":   "Welche Idle-Module angezeigt werden und wie zwischen ihnen rotiert wird.",
         "fields": [
             "IDLE_MODULES",
+            "IDLE_LAYOUT",
+            "DASHBOARD_TILES",
             "IDLE_MODULE_ROTATION_SECONDS",
             "NIGHT_MODE_ENABLED",
             "NIGHT_MODE_START",
@@ -314,6 +348,30 @@ def parse_idle_module_ids(raw_value: str) -> tuple[str, ...]:
         if mid and mid not in parsed:
             parsed.append(mid)
     return tuple(parsed)
+
+
+def parse_dashboard_tiles(raw_value: str) -> tuple[tuple[str, int], ...]:
+    """
+    'dwd_weather:45, calendar:30, garbage' → (('dwd_weather', 45), ('calendar', 30), ('garbage', 0)).
+    0 = Höhe wird später gleichmäßig aus dem Rest verteilt. Reihenfolge bleibt erhalten.
+    """
+    tiles: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for chunk in (raw_value or "").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        module_id, _, pct_raw = chunk.partition(":")
+        module_id = module_id.strip().lower()
+        if not module_id or module_id in seen:
+            continue
+        try:
+            pct = max(0, min(100, int(pct_raw.strip()))) if pct_raw.strip() else 0
+        except ValueError:
+            pct = 0
+        tiles.append((module_id, pct))
+        seen.add(module_id)
+    return tuple(tiles)
 
 
 def parse_display_rotation(raw_value: str) -> int:
@@ -387,6 +445,8 @@ class RuntimeConfig:
     # Idle-Verwaltung
     idle_module_ids:               tuple = ()
     idle_module_rotation_seconds:  int   = 120
+    idle_layout:                   str   = "rotation"     # rotation | dashboard
+    dashboard_tiles:               tuple = ()             # ((module_id, prozent), …)
     night_mode_enabled:            bool  = False
     night_mode_start:              str   = "23:00"
     night_mode_end:                str   = "07:00"
@@ -619,6 +679,10 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     timezone_name = get_env_value(settings, "TIMEZONE", "Europe/Berlin")
     idle_module_ids = parse_idle_module_ids(idle_modules_raw)
     idle_rotation_seconds = _parse_int(settings, "IDLE_MODULE_ROTATION_SECONDS", 120, 30, 3600)
+    idle_layout = get_env_value(settings, "IDLE_LAYOUT", "rotation").strip().lower()
+    if idle_layout not in {"rotation", "dashboard"}:
+        idle_layout = "rotation"
+    dashboard_tiles = parse_dashboard_tiles(get_env_value(settings, "DASHBOARD_TILES", ""))
     night_mode_enabled = parse_bool_env(settings.get("NIGHT_MODE_ENABLED"), False)
     night_mode_start = get_env_value(settings, "NIGHT_MODE_START", "23:00")
     night_mode_end = get_env_value(settings, "NIGHT_MODE_END", "07:00")
@@ -651,6 +715,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
+        "IDLE_LAYOUT": as_env_value(idle_layout),
+        "DASHBOARD_TILES": as_env_value(", ".join(f"{m}:{p}" if p else m for m, p in dashboard_tiles)),
         "NIGHT_MODE_ENABLED": as_env_value(night_mode_enabled),
         "NIGHT_MODE_START": as_env_value(night_mode_start),
         "NIGHT_MODE_END": as_env_value(night_mode_end),
@@ -671,6 +737,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         timezone=timezone_name,
         idle_module_ids=idle_module_ids,
         idle_module_rotation_seconds=idle_rotation_seconds,
+        idle_layout=idle_layout,
+        dashboard_tiles=dashboard_tiles,
         night_mode_enabled=night_mode_enabled,
         night_mode_start=night_mode_start,
         night_mode_end=night_mode_end,
@@ -716,6 +784,7 @@ def get_settings_runtime_summary() -> dict[str, str]:
         "theme":               THEME_LABELS.get(cfg.display_theme, cfg.display_theme),
         "output_format":       "BMP (Spectra 6)" if cfg.output_format == "bmp" else "PNG",
         "idle_modules":        ", ".join(cfg.idle_module_ids) if cfg.idle_module_ids else "Keine",
+        "idle_layout":         "Dashboard" if cfg.idle_layout == "dashboard" else "Rotation",
         "idle_rotation":       f"{cfg.idle_module_rotation_seconds}s",
         "night_mode":          (
             f"Aktiv {cfg.night_mode_start}–{cfg.night_mode_end}, alle {cfg.night_mode_interval_minutes} min"

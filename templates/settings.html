@@ -391,6 +391,7 @@ input::placeholder { color: var(--muted); }
                     <div class="preview-tools-row">
                         <select id="previewModule" aria-label="Modul für die Vorschau">
                             <option value="">Aktuelles Display-Bild</option>
+                            <option value="dashboard">Dashboard (alle Kacheln)</option>
                             {% for m in modules %}
                             <option value="{{ m.id }}">{{ m.name }}{% if m.kind == 'priority' %} (Prioritätsmodul){% endif %}</option>
                             {% endfor %}

@@ -221,6 +221,10 @@ class DWDWeatherModule(PlexInkModule):
         from .renderer import render_dwd_weather_module
         return render_dwd_weather_module(ModuleRenderServices.from_runtime(), content)
 
+    def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
+        from .renderer import render_dwd_weather_tile
+        return render_dwd_weather_tile(ModuleRenderServices.from_runtime(), content, width, height)
+
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .renderer import should_refresh_dwd_weather_module
         return should_refresh_dwd_weather_module()

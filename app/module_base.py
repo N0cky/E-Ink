@@ -138,3 +138,14 @@ class PlexInkModule(ABC):
         None -> Framework-Standardlogik verwenden.
         """
         return None
+
+    # ── Dashboard-Modus ──────────────────────────────────────────────────────
+
+    def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
+        """
+        Optionale kompakte Darstellung für den Dashboard-Modus (IDLE_LAYOUT=dashboard):
+        mehrere Module teilen sich ein Bild, jedes bekommt eine Kachel der
+        Größe width × height. Rückgabe None → Modul kann keine Kachel liefern
+        und wird im Dashboard übersprungen.
+        """
+        return None

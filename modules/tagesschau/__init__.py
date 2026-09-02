@@ -73,6 +73,10 @@ class TagesschauModule(PlexInkModule):
         from .renderer import render_tagesschau_module
         return render_tagesschau_module(ModuleRenderServices.from_runtime(), content)
 
+    def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
+        from .renderer import render_tagesschau_tile
+        return render_tagesschau_tile(ModuleRenderServices.from_runtime(), content, width, height)
+
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .data_source import should_refresh_tagesschau_news
         return should_refresh_tagesschau_news()

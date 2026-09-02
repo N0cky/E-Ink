@@ -1642,6 +1642,93 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     return img.convert("RGB")
 
 
+def render_dwd_weather_tile(context: ModuleRenderServices, content: object,
+                            width: int, height: int) -> Image.Image:
+    """
+    Kompakte Wetter-Kachel für den Dashboard-Modus: aktuelle Temperatur,
+    Zustand, Min/Max, Icon; ab ~300 px Höhe die vier Stat-Panels, ab ~460 px
+    zusätzlich die Mehrtages-Vorschau. Skaliert mit der Kachelbreite.
+    """
+    data = content if isinstance(content, dict) else {}
+    theme = getattr(context, "display_theme", "dark")
+    pal = get_dwd_palette(theme)
+    flat = bool(pal.get("flat"))
+    s = max(0.5, min(width / 1200.0, 1.4))
+
+    def px(v: float) -> int:
+        return max(1, int(v * s))
+
+    if flat:
+        img = Image.new("RGBA", (width, height), (*pal["bg_top"], 255))
+    elif theme == "light":
+        img = create_weather_background_light(width, height).convert("RGBA")
+    else:
+        img = create_weather_background(width, height).convert("RGBA")
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    font_title     = context.load_font(px(26), True)
+    font_big       = context.load_font(px(84), True)
+    font_condition = context.load_font(px(30), True)
+    font_value     = context.load_font(px(26), True)
+    font_label     = context.load_font(px(20), True)
+    font_fc_day    = context.load_font(px(20), True)
+    font_fc_temp   = context.load_font(px(22), True)
+    font_fc_meta   = context.load_font(px(19), False)
+
+    left, right = px(40), width - px(40)
+    station_label = data.get("station_name") or f"DWD-Station {data.get('station_id', '--')}"
+    draw.text((left, px(14)), f"Wetter  ·  {station_label}", font=font_title, fill=pal["header_station"])
+
+    # Aktuell: Temperatur, Zustand, Badge links – Icon rechts
+    top = px(50)
+    icon_size = px(120)
+    draw_weather_icon(draw, right - icon_size, top, data.get("current_icon_code"),
+                      icon_size, pal["icon_main"], temp_hint_c=data.get("current_temp_c"))
+    draw.text((left, top - px(6)), format_temp(data.get("current_temp_c")), font=font_big, fill=pal["temp_big"])
+    draw.text((left, top + px(96)), data.get("current_label") or "Keine aktuellen Daten",
+              font=font_condition, fill=pal["condition"])
+    today = data.get("today", {})
+    badge_top = top + px(140)
+    badge_text = f"Heute  {format_temp(today.get('min_temp_c'))} – {format_temp(today.get('max_temp_c'))}"
+    badge_w = int(draw.textlength(badge_text, font=font_value)) + px(36)
+    draw.rounded_rectangle((left, badge_top, left + badge_w, badge_top + px(40)),
+                           radius=0 if flat else px(20), fill=pal["badge_fill"], outline=pal["badge_outline"], width=1)
+    draw.text((left + px(18), badge_top + px(9)), badge_text, font=font_value, fill=pal["badge_text"])
+
+    y = badge_top + px(58)
+
+    # Stat-Panels, wenn Platz (110 wie im Vollbild: zweizeiliger Wind braucht die Höhe)
+    stat_h = px(110)
+    if height - y >= stat_h + px(16):
+        wind_text = data.get("current_wind_text", "--")
+        wind_dir = data.get("current_wind_dir_label", "")
+        if wind_dir and wind_dir != "--":
+            parts = wind_text.split("\n", 1)
+            wind_text = f"{parts[0]}  {wind_dir}" + (f"\n{parts[1]}" if len(parts) > 1 else "")
+        stat_defs = [
+            ("Niederschlag", data.get("current_precipitation_mm_text", "--"), "umbrella"),
+            ("Feuchte",      data.get("current_humidity_text", "--"),         "humidity"),
+            ("Wind",         wind_text,                                       "wind"),
+            ("Luftdruck",    data.get("current_pressure_text", "--"),         "gauge"),
+        ]
+        gap = px(12)
+        stat_w = int((right - left - gap * 3) / 4)
+        for idx, (title, value, icon_name) in enumerate(stat_defs):
+            sx = left + idx * (stat_w + gap)
+            draw_stat_panel(img, (sx, y, sx + stat_w, y + stat_h), title, value, icon_name,
+                            font_label, font_value, pal, load_font=context.load_font)
+        y += stat_h + px(14)
+
+    # Vorschau, wenn noch Platz (140: Tag, Temperatur und drei Meta-Zeilen ohne Überlappung)
+    forecast_days = data.get("days", [])[:5]
+    fc_h = px(140)
+    if forecast_days and height - y >= fc_h + px(8):
+        draw_compact_forecast_strip(img, (left, y, right, y + fc_h), forecast_days,
+                                    font_fc_day, font_fc_temp, font_fc_meta, pal)
+
+    return img.convert("RGB")
+
+
 def should_refresh_dwd_weather_module() -> bool:
     from .dwd import should_refresh_dwd_weather
     from .dwd_pollen import should_refresh_dwd_pollen

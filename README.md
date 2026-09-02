@@ -33,6 +33,7 @@ Supported output modes:
 - **Tagesschau news** – current news cards with thumbnail and teaser text
 - **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours included, with a `{year}` placeholder so the URL never needs a yearly update
 - **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events
+- **Dashboard mode** – instead of rotating full-screen modules, stack several of them as tiles in one image (`IDLE_LAYOUT=dashboard`): weather on top, calendar in the middle, garbage or news below. Fewer display refreshes, more information per glance
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
 - **Modular architecture** – add new content sources as standalone modules without touching the core framework
 - **Dark and light themes** – optimized for OLED-like displays and Waveshare Spectra 6 E-Ink panels
@@ -256,6 +257,8 @@ Recommended setup for all environments:
 | `REFRESH_INTERVAL` | Poll interval in seconds | `60` |
 | `TIMEZONE` | IANA timezone, for example `Europe/Berlin` | `Europe/Berlin` |
 | `IDLE_MODULES` | Active idle modules, comma-separated | `` |
+| `IDLE_LAYOUT` | `rotation` (one module per image, in turns) or `dashboard` (several modules stacked as tiles in one image) | `rotation` |
+| `DASHBOARD_TILES` | Tile order and heights for the dashboard, e.g. `dwd_weather:45, calendar:30, garbage:25`. Modules without a percentage share the rest. Empty: all active idle modules with equal height | `` |
 | `IDLE_MODULE_ROTATION_SECONDS` | Rotation interval between idle modules | `120` |
 | `NIGHT_MODE_ENABLED` | Enable reduced refreshes during a local night window | `false` |
 | `NIGHT_MODE_START` | Local start time for night mode (`HH:MM`) | `23:00` |

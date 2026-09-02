@@ -90,6 +90,8 @@ class _FakeCfg:
     render_width = 400
     render_height = 300
     idle_module_rotation_seconds = 300
+    idle_layout = "rotation"
+    dashboard_tiles = ()
     refresh_interval = 60
     night_mode_enabled = False
     night_mode_start_minutes = 0
