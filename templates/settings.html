@@ -61,6 +61,12 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .preview-actions { padding: 14px 16px 16px; }
+.preview-tools { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.preview-tools-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
+.preview-tools select { width: 100%; }
+.preview-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); cursor: pointer; }
+.preview-check input { accent-color: var(--accent); width: 15px; height: 15px; }
+@media (max-width: 600px) { .preview-tools-row { grid-template-columns: 1fr; } }
 .preview-meta { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
 .preview-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -379,6 +385,29 @@ input::placeholder { color: var(--muted); }
                     <a class="pill-btn" href="/current.png" target="_blank" rel="noreferrer" id="openPreviewBtn">🖼 Vorschau</a>
                     <a class="pill-btn" href="/logs">📋 Logs</a>
                 </div>
+
+                {# Modul-Vorschau: ein Modul on-demand rendern, ohne das Display anzufassen #}
+                <div class="preview-tools">
+                    <div class="preview-tools-row">
+                        <select id="previewModule" aria-label="Modul für die Vorschau">
+                            <option value="">Aktuelles Display-Bild</option>
+                            {% for m in modules %}
+                            <option value="{{ m.id }}">{{ m.name }}{% if m.kind == 'priority' %} (Prioritätsmodul){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <select id="previewTheme" aria-label="Theme für die Vorschau">
+                            <option value="">Theme wie konfiguriert</option>
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                        </select>
+                    </div>
+                    <div class="preview-tools-row">
+                        <label class="preview-check" title="Zeigt das Bild so, wie das Spectra-6-Display es nach dem Dithering darstellt">
+                            <input type="checkbox" id="previewDevice"> Wie auf dem Display (6 Farben)
+                        </label>
+                        <button class="pill-btn primary" type="button" id="previewRenderBtn">▶ Vorschau rendern</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -476,8 +505,23 @@ function togglePw(btn) {
     var hint  = document.getElementById('previewHint');
     var openPreviewBtn = document.getElementById('openPreviewBtn');
 
+    var moduleSel = document.getElementById('previewModule');
+    var themeSel  = document.getElementById('previewTheme');
+    var deviceCb  = document.getElementById('previewDevice');
+    var previewBtn = document.getElementById('previewRenderBtn');
+
     function previewUrl() {
         return '/current.png?t=' + Date.now();
+    }
+
+    function modulePreviewUrl() {
+        var id = moduleSel.value;
+        if (!id) return null;
+        var params = new URLSearchParams();
+        if (themeSel.value) params.set('theme', themeSel.value);
+        if (deviceCb.checked) params.set('device', '1');
+        params.set('t', String(Date.now()));
+        return '/api/preview/' + encodeURIComponent(id) + '.png?' + params.toString();
     }
 
     function syncPreviewTargets(url) {
@@ -499,9 +543,47 @@ function togglePw(btn) {
         tmp.src = newSrc;
     }
 
-    setInterval(function () { refreshPreview('automatisch'); }, 30000);
+    /* Modul-Vorschau: rendert ein Modul on-demand. Fehler kommen als JSON. */
+    function renderModulePreview() {
+        var url = modulePreviewUrl();
+        if (!url) { refreshPreview('aktuelles Bild'); return; }
+        var label = moduleSel.options[moduleSel.selectedIndex].textContent;
+        frame.classList.add('loading');
+        previewBtn.disabled = true; previewBtn.textContent = '▶ Rendert…';
+        hint.textContent = 'Rendere ' + label + ' …';
+        fetch(url)
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (j) { throw new Error(j.error || ('HTTP ' + r.status)); });
+                }
+                return r.blob();
+            })
+            .then(function (blob) {
+                var objectUrl = URL.createObjectURL(blob);
+                img.src = objectUrl;
+                syncPreviewTargets(objectUrl);
+                hint.textContent = 'Vorschau: ' + label
+                    + (themeSel.value ? ' · ' + themeSel.value : '')
+                    + (deviceCb.checked ? ' · 6 Farben' : '')
+                    + ' · ' + new Date().toLocaleTimeString('de-DE');
+            })
+            .catch(function (err) {
+                hint.textContent = label + ': ' + err.message;
+            })
+            .finally(function () {
+                frame.classList.remove('loading');
+                previewBtn.disabled = false; previewBtn.textContent = '▶ Vorschau rendern';
+            });
+    }
+
+    /* Auto-Refresh nur für das aktuelle Display-Bild, nie für Modul-Vorschauen */
+    setInterval(function () { if (!moduleSel.value) refreshPreview('automatisch'); }, 30000);
     syncPreviewTargets(previewUrl());
-    document.getElementById('refreshPreviewBtn').addEventListener('click', function () { refreshPreview('manuell'); });
+    previewBtn.addEventListener('click', renderModulePreview);
+    moduleSel.addEventListener('change', function () { if (!moduleSel.value) refreshPreview('aktuelles Bild'); });
+    document.getElementById('refreshPreviewBtn').addEventListener('click', function () {
+        if (moduleSel.value) { renderModulePreview(); } else { refreshPreview('manuell'); }
+    });
     document.getElementById('rerenderBtn').addEventListener('click', function () {
         var btn = this;
         btn.disabled = true; btn.textContent = '⟳ Rendert…';

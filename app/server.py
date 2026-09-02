@@ -683,6 +683,62 @@ def current_bmp():
     return send_file(str(CURRENT_BMP_PATH), mimetype="image/bmp", max_age=0)
 
 
+# ── Modul-Vorschau ───────────────────────────────────────────────────────────
+
+def render_module_preview(module_id: str, theme: str | None = None, device: bool = False) -> Image.Image | None:
+    """
+    Rendert ein einzelnes Modul on-demand, ohne das Display-Bild anzufassen.
+    theme überschreibt DISPLAY_THEME nur für diesen Render. device=True
+    liefert die 6-Farben-Vorschau, wie sie das Spectra-6-Display zeigt.
+    Gibt None zurück, wenn das Modul gerade keinen Inhalt hat.
+    """
+    from app.config import override_runtime_config
+
+    mod = _registry.get_module_by_id(module_id)
+    if mod is None:
+        raise LookupError(module_id)
+
+    with _render_lock:
+        changes = {"display_theme": theme} if theme else {}
+        with override_runtime_config(**changes):
+            env = get_settings_values()
+            content = mod.fetch_content(env)
+            if content is None:
+                return None
+            image = mod.render(env, content)
+
+    if device:
+        _, image = convert_to_spectra6(image)
+    return image
+
+
+@app.route("/api/preview/<module_id>.png", methods=["GET"])
+def api_preview(module_id: str):
+    from app.config import AVAILABLE_THEMES
+    theme = (request.args.get("theme") or "").strip().lower() or None
+    if theme and theme not in AVAILABLE_THEMES:
+        return jsonify({"ok": False, "error": f"Unbekanntes Theme: {theme}"}), 400
+    device = request.args.get("device", "").strip().lower() in ("1", "true", "yes")
+
+    try:
+        image = render_module_preview(module_id, theme=theme, device=device)
+    except LookupError:
+        return jsonify({"ok": False, "error": "Unbekanntes Modul"}), 404
+    except Exception as exc:
+        log.error(f"preview [{module_id}]: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    if image is None:
+        return jsonify({"ok": False, "error": "Modul liefert gerade keinen Inhalt"}), 404
+
+    buf = io.BytesIO()
+    image.save(buf, "PNG")
+    buf.seek(0)
+    response = send_file(buf, mimetype="image/png", max_age=0)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # ── ESP32-Endpunkte ──────────────────────────────────────────────────────────
 
 @app.route("/hash", methods=["GET"])

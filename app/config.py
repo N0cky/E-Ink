@@ -12,10 +12,11 @@ importieren – es steht am Anfang der Dependency-Chain.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -403,6 +404,33 @@ _cfg: RuntimeConfig = RuntimeConfig()
 def get_cfg() -> RuntimeConfig:
     """Immer per Funktionsaufruf lesen – niemals _cfg direkt importieren!"""
     return _cfg
+
+
+# Alle Display-Themes, die Module kennen müssen (Settings-Select + Vorschau)
+AVAILABLE_THEMES: tuple[str, ...] = ("dark", "light")
+
+
+@contextlib.contextmanager
+def override_runtime_config(**changes):
+    """
+    Ersetzt die RuntimeConfig vorübergehend (z. B. display_theme für eine
+    Vorschau). Nur unter dem Render-Lock des Servers verwenden, damit kein
+    paralleler Render die Änderung sieht. Stellt beim Verlassen die alte
+    Config wieder her, auch bei Exceptions.
+    """
+    global _cfg
+    previous = _cfg
+    if not changes:
+        yield previous
+        return
+    settings = dict(previous.settings_values)
+    if "display_theme" in changes:
+        settings["DISPLAY_THEME"] = str(changes["display_theme"])
+    _cfg = _dc_replace(previous, settings_values=settings, **changes)
+    try:
+        yield _cfg
+    finally:
+        _cfg = previous
 
 
 def get_setting(name: str, default: str = "") -> str:

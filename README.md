@@ -288,6 +288,7 @@ When settings are changed through the web UI, the application writes them back t
 | `/api/status` | GET | Runtime status including loaded modules |
 | `/api/modules` | GET | List of all discovered modules |
 | `/api/rescan-modules` | POST | Reload modules without restarting the server |
+| `/api/preview/<module_id>.png` | GET | Render one module on demand without touching the display. `?theme=dark\|light` overrides the theme, `?device=1` returns the 6-colour Spectra preview. 404 with a JSON message when the module has no content |
 
 ---
 
