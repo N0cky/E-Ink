@@ -5,13 +5,33 @@ from PIL import Image, ImageDraw
 from app.config import load_font, now_local
 from app.text_rendering import draw_lines, fit_wrapped_text
 from app.image_rendering import (
+    SPECTRA6_COLORS,
     create_centered_cover_canvas,
+    create_flat_cover_canvas,
     create_light_cover_canvas,
     draw_bottom_gradient,
 )
 
 STEAM_ACCENT = (102, 192, 244, 255)
 STEAM_LIGHT_ACCENT = (36, 112, 162, 255)
+
+# Textfarben für die hellen Layouts (light: warme Grautöne, eink: nur Spectra-Farben)
+_LIGHT_TEXT = {
+    "light": {
+        "accent": STEAM_LIGHT_ACCENT,
+        "title": (22, 18, 12, 255),
+        "player": (78, 68, 58, 255),
+        "meta": (118, 106, 92, 255),
+        "stamp": (132, 120, 108, 255),
+    },
+    "eink": {
+        "accent": (*SPECTRA6_COLORS["blue"], 255),
+        "title": (*SPECTRA6_COLORS["black"], 255),
+        "player": (*SPECTRA6_COLORS["black"], 255),
+        "meta": (*SPECTRA6_COLORS["blue"], 255),
+        "stamp": (*SPECTRA6_COLORS["black"], 255),
+    },
+}
 
 
 def _draw_avatar(base: Image.Image, avatar: Image.Image | None, x: int, y: int, size: int) -> None:
@@ -101,8 +121,13 @@ def render_steam_light(
     artwork: Image.Image,
     avatar: Image.Image | None,
     show_timestamp: bool,
+    theme: str = "light",
 ) -> Image.Image:
-    base, cover_bottom = create_light_cover_canvas(artwork, render_width, render_height)
+    col = _LIGHT_TEXT["eink" if theme == "eink" else "light"]
+    if theme == "eink":
+        base, cover_bottom = create_flat_cover_canvas(artwork, render_width, render_height)
+    else:
+        base, cover_bottom = create_light_cover_canvas(artwork, render_width, render_height)
     base = base.convert("RGBA")
     draw = ImageDraw.Draw(base, "RGBA")
     persona_name = str(content.get("personaname", "")).strip() or "Steam User"
@@ -152,15 +177,15 @@ def render_steam_light(
     )
 
     text_y = avatar_y + 10
-    draw.text((text_x, text_y - 34), f"{persona_name} spielt gerade", font=label_font, fill=STEAM_LIGHT_ACCENT)
-    cur_y = draw_lines(draw, text_x, text_y, title_lines, title_font, (22, 18, 12, 255), title_lh, title_sp)
+    draw.text((text_x, text_y - 34), f"{persona_name} spielt gerade", font=label_font, fill=col["accent"])
+    cur_y = draw_lines(draw, text_x, text_y, title_lines, title_font, col["title"], title_lh, title_sp)
     cur_y += 12
-    cur_y = draw_lines(draw, text_x, cur_y, player_lines, player_font, (78, 68, 58, 255), player_lh, player_sp)
+    cur_y = draw_lines(draw, text_x, cur_y, player_lines, player_font, col["player"], player_lh, player_sp)
     cur_y += 10
-    draw_lines(draw, text_x, cur_y, meta_lines, meta_font, (118, 106, 92, 255), meta_lh, meta_sp)
+    draw_lines(draw, text_x, cur_y, meta_lines, meta_font, col["meta"], meta_lh, meta_sp)
 
     if show_timestamp:
         stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
-        draw.text((render_width - 420, 40), stamp, font=load_font(24, False), fill=(132, 120, 108, 255))
+        draw.text((render_width - 420, 40), stamp, font=load_font(24, False), fill=col["stamp"])
 
     return base.convert("RGB")

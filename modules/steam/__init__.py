@@ -114,8 +114,9 @@ class SteamModule(PlexInkModule):
             artwork = Image.new("RGB", (cfg.render_width, cfg.render_height), (22, 28, 36))
 
         show_timestamp = get_bool_setting("STEAM_SHOW_UPDATED_TIMESTAMP", True)
-        if cfg.display_theme == "light":
-            return render_steam_light(cfg.render_width, cfg.render_height, content, artwork, avatar, show_timestamp)
+        if cfg.display_theme in ("light", "eink"):
+            return render_steam_light(cfg.render_width, cfg.render_height, content, artwork, avatar,
+                                      show_timestamp, theme=cfg.display_theme)
         return render_steam_dark(cfg.render_width, cfg.render_height, content, artwork, avatar, show_timestamp)
 
     def get_state_key(self, content: Any) -> str:

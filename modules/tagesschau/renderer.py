@@ -9,7 +9,8 @@ from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from app.image_rendering import create_rounded_thumbnail
+from app.config import format_date_long
+from app.image_rendering import create_rounded_thumbnail, fit_crop
 from app.module_services import ModuleRenderServices
 from app.text_rendering import draw_lines, fit_optional_text_block
 
@@ -53,7 +54,31 @@ _NEWS_LIGHT = {
 }
 
 
+def _spectra(name: str) -> Color4:
+    from app.image_rendering import SPECTRA6_COLORS as _C
+    return (*_C[name], 255)
+
+
+# E-Ink: nur Spectra-Farben, alles deckend, keine Schatten/Blur (siehe "flat")
+_NEWS_EINK = {
+    "flat":           True,
+    "idle_text":      _spectra("black"),
+    "title_text":     _spectra("black"),
+    "label_text":     _spectra("blue"),
+    "card_tint":      _spectra("white"),
+    "card_outline":   _spectra("black"),
+    "thumb_border":   _spectra("black"),
+    "meta_color":     _spectra("blue"),
+    "news_title":     _spectra("black"),
+    "news_summary":   _spectra("black"),
+    "empty_title":    _spectra("black"),
+    "empty_sub":      _spectra("black"),
+}
+
+
 def _news_pal(theme: str) -> dict:
+    if theme == "eink":
+        return _NEWS_EINK
     return _NEWS_LIGHT if theme == "light" else _NEWS_DARK
 
 
@@ -168,13 +193,13 @@ def draw_idle_empty_state(
     pal = _news_pal(theme)
     draw.text(
         (80, render_height - 230),
-        "Plex ist aktuell idle",
+        "Tagesschau",
         font=font_idle,
         fill=pal["empty_title"],
     )
     draw.text(
         (80, render_height - 140),
-        "Es läuft gerade nichts.",
+        "Gerade keine Nachrichten verfügbar.",
         font=font_idle_sub,
         fill=pal["empty_sub"],
     )
@@ -188,7 +213,7 @@ def draw_tagesschau_header(
     theme: str = "dark",
 ):
     pal = _news_pal(theme)
-    draw.text((80, 72),  "Plex ist aktuell idle", font=font_idle_sub,   fill=pal["idle_text"])
+    draw.text((80, 72),  format_date_long(),      font=font_idle_sub,   fill=pal["idle_text"])
     draw.text((80, 126), "Tagesschau",            font=font_idle,        fill=pal["title_text"])
     draw.text((82, 228), "Aktuelle Schlagzeilen", font=font_news_label,  fill=pal["label_text"])
 
@@ -201,23 +226,25 @@ def draw_card_thumbnail(
     height: int,
     thumb: Image.Image,
     border_color: Color4 = (255, 255, 255, 60),
+    flat: bool = False,
 ):
-    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow, "RGBA")
-    shadow_draw.rounded_rectangle(
-        [(x + 6, y + 8), (x + width + 6, y + height + 8)],
-        radius=20,
-        fill=(0, 0, 0, 135),
-    )
-    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(radius=10)))
+    if not flat:
+        shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow, "RGBA")
+        shadow_draw.rounded_rectangle(
+            [(x + 6, y + 8), (x + width + 6, y + height + 8)],
+            radius=20,
+            fill=(0, 0, 0, 135),
+        )
+        img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(radius=10)))
 
     border = Image.new("RGBA", img.size, (0, 0, 0, 0))
     border_draw = ImageDraw.Draw(border, "RGBA")
     border_draw.rounded_rectangle(
         [(x - 2, y - 2), (x + width + 2, y + height + 2)],
-        radius=20,
+        radius=0 if flat else 20,
         outline=border_color,
-        width=2,
+        width=4 if flat else 2,
     )
     img.alpha_composite(border)
     img.alpha_composite(thumb, (x, y))
@@ -236,7 +263,11 @@ def apply_frosted_panel(
     panel_w = max(1, right - left)
     panel_h = max(1, bottom - top)
 
-    backdrop = img.crop((left, top, right, bottom)).filter(ImageFilter.GaussianBlur(radius=blur_radius)).convert("RGBA")
+    backdrop = img.crop((left, top, right, bottom)).convert("RGBA")
+    if blur_radius > 0 and len(tint) > 3 and tint[3] < 255:
+        # Nur blurren, wenn die Tönung durchscheinend ist – bei deckenden
+        # E-Ink-Flächen wäre das verschwendete Arbeit
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=blur_radius))
     backdrop.alpha_composite(Image.new("RGBA", (panel_w, panel_h), tint))
 
     mask = Image.new("L", (panel_w, panel_h), 0)
@@ -267,15 +298,16 @@ def draw_tagesschau_card(
     theme: str = "dark",
 ):
     pal = _news_pal(theme)
+    flat = bool(pal.get("flat"))
     card_bounds = (60, top, render_width - 60, bottom)
     apply_frosted_panel(
         img,
         card_bounds,
-        radius=24,
+        radius=0 if flat else 24,
         blur_radius=20,
         tint=pal["card_tint"],
         outline=pal["card_outline"],
-        outline_width=2,
+        outline_width=3 if flat else 2,
     )
 
     inner_x = 88
@@ -288,9 +320,14 @@ def draw_tagesschau_card(
     if image is not None:
         image_box_h = min(max(118, inner_height - 4), inner_height)
         image_box_w = min(236, max(192, int(inner_width * 0.3)))
-        thumb = create_thumbnail(image, image_box_w, image_box_h, 18)
+        if flat:
+            # E-Ink: Foto unverändert (kein Entsättigen/Abdunkeln), eckig – das Dithering
+            # macht aus einem satten Foto ein lesbares Bild, aus einem grauen nur Matsch
+            thumb = fit_crop(image, image_box_w, image_box_h).convert("RGBA")
+        else:
+            thumb = create_thumbnail(image, image_box_w, image_box_h, 18)
         draw_card_thumbnail(img, inner_x, inner_y, image_box_w, image_box_h, thumb,
-                            border_color=pal["thumb_border"])
+                            border_color=pal["thumb_border"], flat=flat)
 
     text_x = inner_x + image_box_w + 24 if image_box_w else inner_x
     text_width = inner_width - image_box_w - 24 if image_box_w else inner_width
@@ -396,7 +433,10 @@ def render_tagesschau_module(services: ModuleRenderServices, content: object) ->
 
     news_items = content if isinstance(content, list) else []
     theme = services.display_theme
-    if theme == "light":
+    if theme == "eink":
+        from app.image_rendering import SPECTRA6_COLORS
+        base = Image.new("RGB", (services.render_width, services.render_height), SPECTRA6_COLORS["white"])
+    elif theme == "light":
         base = create_tagesschau_idle_background_light(services.render_width, services.render_height)
     else:
         base = create_tagesschau_idle_background(services.render_width, services.render_height)

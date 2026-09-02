@@ -22,6 +22,17 @@ _SPECTRA6_REAL_WORLD_RGB: list[tuple[int, int, int]] = [
     (18, 95, 32),    # Grün
 ]
 
+# Benannte Spectra-6-Farben (reale Darstellung) für flache E-Ink-Renderings.
+# Wer genau diese Werte zeichnet, bekommt beim Dithering keine Mischpixel.
+SPECTRA6_COLORS: dict[str, tuple[int, int, int]] = {
+    "black":  _SPECTRA6_REAL_WORLD_RGB[0],
+    "white":  _SPECTRA6_REAL_WORLD_RGB[1],
+    "yellow": _SPECTRA6_REAL_WORLD_RGB[2],
+    "red":    _SPECTRA6_REAL_WORLD_RGB[3],
+    "blue":   _SPECTRA6_REAL_WORLD_RGB[4],
+    "green":  _SPECTRA6_REAL_WORLD_RGB[5],
+}
+
 # Geräte-RGB-Werte, die das Display-Protokoll erwartet
 _SPECTRA6_DEVICE_RGB: list[tuple[int, int, int]] = [
     (0, 0, 0),       # Schwarz
@@ -146,6 +157,34 @@ def create_centered_cover_canvas(
     bg_rgba.alpha_composite(border_layer)
     bg_rgba.paste(cover, (cover_x, cover_y))
     return bg_rgba.convert("RGB")
+
+
+def create_flat_cover_canvas(
+    img: Image.Image,
+    target_w: int,
+    target_h: int,
+    vertical_offset: int = LIGHT_COVER_VERTICAL_OFFSET,
+    border_width: int = 6,
+) -> tuple[Image.Image, int]:
+    """E-Ink: weißer Hintergrund, Cover zentriert, kräftiger schwarzer Rahmen.
+    Kein Blur, kein Schatten – nichts, das auf sechs Farben zu Rauschen wird.
+
+    Gibt (canvas, cover_bottom_y) zurück wie create_light_cover_canvas().
+    """
+    canvas = Image.new("RGB", (target_w, target_h), SPECTRA6_COLORS["white"])
+    max_cover_w = int(target_w * COVER_MAX_FRACTION)
+    max_cover_h = int(target_h * COVER_MAX_FRACTION)
+    cover = resize_to_fit(img, max_cover_w, max_cover_h)
+    cw, ch = cover.size
+    cx = (target_w - cw) // 2
+    cy = max(16 + border_width, (target_h - ch) // 2 + vertical_offset)
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle(
+        [(cx - border_width, cy - border_width), (cx + cw + border_width - 1, cy + ch + border_width - 1)],
+        fill=SPECTRA6_COLORS["black"],
+    )
+    canvas.paste(cover, (cx, cy))
+    return canvas, cy + ch
 
 
 def create_rounded_thumbnail(img: Image.Image, target_w: int, target_h: int, radius: int = 18) -> Image.Image:

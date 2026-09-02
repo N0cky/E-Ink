@@ -249,7 +249,7 @@ Recommended setup for all environments:
 | `RENDER_WIDTH` | Render width in pixels | `1600` |
 | `RENDER_HEIGHT` | Render height in pixels | `1200` |
 | `DISPLAY_ROTATION` | Rotation: `0`, `90`, `180`, `270` | `0` |
-| `DISPLAY_THEME` | `dark` or `light` | `dark` |
+| `DISPLAY_THEME` | `dark`, `light` or `eink` (flat Spectra 6 colours, no blur or gradients, recommended for the E-Ink display) | `dark` |
 | `OUTPUT_FORMAT` | `png` or `bmp` (Spectra 6) | `png` |
 | `REFRESH_INTERVAL` | Poll interval in seconds | `60` |
 | `TIMEZONE` | IANA timezone, for example `Europe/Berlin` | `Europe/Berlin` |

@@ -225,6 +225,24 @@ class LightThemeSmokeTest(_SmokeBase):
     theme = "light"
 
 
+class EinkThemeSmokeTest(_SmokeBase):
+    theme = "eink"
+
+    def test_eink_renders_stay_mostly_within_spectra_palette(self) -> None:
+        """Flache Flächen müssen exakt auf Spectra-Farben liegen, sonst dithert es.
+        Fotos (Gallery/Plex-Cover) sind ausgenommen, DWD und Tagesschau-Chrome nicht."""
+        from app.image_rendering import SPECTRA6_COLORS
+        from modules.dwd_weather import module as dwd
+        content = dwd.fetch_content(self.env)
+        img = dwd.render(self.env, content).convert("RGB")
+        palette = set(SPECTRA6_COLORS.values())
+        total = img.width * img.height
+        exact = sum(count for count, color in (img.getcolors(total) or []) if color in palette)
+        # Text-Antialiasing und Icons erzeugen Zwischentöne – aber der Großteil
+        # des Bildes (Hintergrund, Panels, Flächen) muss exakt auf der Palette liegen.
+        self.assertGreater(exact / total, 0.85, f"nur {exact / total:.0%} der Pixel auf Spectra-Farben")
+
+
 # Basisklasse nicht als eigenständigen Test ausführen
 del _SmokeBase
 

@@ -206,7 +206,11 @@ class PlexModule(PlexInkModule):
             draw_music_overlay,
             draw_music_overlay_light,
         )
-        from app.image_rendering import create_centered_cover_canvas, create_light_cover_canvas
+        from app.image_rendering import (
+            create_centered_cover_canvas,
+            create_flat_cover_canvas,
+            create_light_cover_canvas,
+        )
         from app.config import get_cfg
 
         session = content
@@ -217,8 +221,11 @@ class PlexModule(PlexInkModule):
         if artwork is None:
             artwork = self._make_fallback_artwork(cfg.render_width, cfg.render_height, cfg.display_theme)
 
-        if cfg.display_theme == "light":
-            base, cover_bottom = create_light_cover_canvas(artwork, cfg.render_width, cfg.render_height)
+        if cfg.display_theme in ("light", "eink"):
+            if cfg.display_theme == "eink":
+                base, cover_bottom = create_flat_cover_canvas(artwork, cfg.render_width, cfg.render_height)
+            else:
+                base, cover_bottom = create_light_cover_canvas(artwork, cfg.render_width, cfg.render_height)
             if media_category == "music":
                 return draw_music_overlay_light(base, session, cover_bottom)
             return draw_video_overlay_light(base, session, cover_bottom)

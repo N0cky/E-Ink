@@ -7,7 +7,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from app.config import get_bool_setting, get_cfg, load_font, now_local
-from app.image_rendering import draw_bottom_gradient
+from app.image_rendering import SPECTRA6_COLORS, draw_bottom_gradient
 from app.text_rendering import draw_lines, fit_wrapped_text
 
 from .plex import get_playback_label
@@ -224,21 +224,48 @@ def draw_music_overlay(base: Image.Image, session: dict) -> Image.Image:
 # Light-Theme Overlays
 # ---------------------------------------------------------------------------
 
+# Light- und E-Ink-Overlays teilen sich das Layout, unterscheiden sich nur in den Farben.
+# E-Ink: nur Spectra-6-Farben, damit Text und Balken nicht gedithert werden.
+_FLAT_PALETTES = {
+    "light": {
+        "text_primary":   LIGHT_TEXT_PRIMARY,
+        "text_secondary": LIGHT_TEXT_SECONDARY,
+        "text_meta":      LIGHT_TEXT_META,
+        "progress_track": LIGHT_PROGRESS_TRACK,
+        "progress_fill":  LIGHT_PROGRESS_FILL,
+    },
+    "eink": {
+        "text_primary":   (*SPECTRA6_COLORS["black"], 255),
+        "text_secondary": (*SPECTRA6_COLORS["black"], 255),
+        "text_meta":      (*SPECTRA6_COLORS["blue"], 255),
+        "progress_track": (*SPECTRA6_COLORS["white"], 255),
+        "progress_fill":  (*SPECTRA6_COLORS["black"], 255),
+    },
+}
+
+
+def _flat_palette(theme: str) -> dict:
+    return _FLAT_PALETTES["eink" if theme == "eink" else "light"]
+
+
 def _draw_light_progress_bar(
     draw: ImageDraw.ImageDraw,
     progress: float,
     x: int, y: int, width: int, height: int,
     show: bool,
+    pal: dict,
 ) -> None:
     if not show:
         return
-    draw.rounded_rectangle([(x, y), (x + width, y + height)], radius=8, fill=LIGHT_PROGRESS_TRACK)
+    draw.rounded_rectangle([(x, y), (x + width, y + height)], radius=8, fill=pal["progress_track"],
+                           outline=pal["progress_fill"] if pal is _FLAT_PALETTES["eink"] else None, width=2)
     fill_w = max(height, int(width * progress))  # min width = height (fully round)
-    draw.rounded_rectangle([(x, y), (x + fill_w, y + height)], radius=8, fill=LIGHT_PROGRESS_FILL)
+    draw.rounded_rectangle([(x, y), (x + fill_w, y + height)], radius=8, fill=pal["progress_fill"])
 
 
 def draw_video_overlay_light(base: Image.Image, session: dict, cover_bottom: int) -> Image.Image:
     cfg = get_cfg()
+    pal = _flat_palette(cfg.display_theme)
     img  = base.copy()
     draw = ImageDraw.Draw(img)
 
@@ -287,24 +314,26 @@ def draw_video_overlay_light(base: Image.Image, session: dict, cover_bottom: int
 
     block_h = title_th + (16 if sub_lines else 0) + sub_th + 14 + meta_th
     cur_y   = max(text_top, text_bottom - block_h)
-    cur_y   = draw_lines(draw, x, cur_y, title_lines, title_font, LIGHT_TEXT_PRIMARY,   title_lh, title_sp)
+    cur_y   = draw_lines(draw, x, cur_y, title_lines, title_font, pal["text_primary"],   title_lh, title_sp)
     if sub_lines:
         cur_y += 16
-        cur_y = draw_lines(draw, x, cur_y, sub_lines,   sub_font,   LIGHT_TEXT_SECONDARY, sub_lh,   sub_sp)
+        cur_y = draw_lines(draw, x, cur_y, sub_lines,   sub_font,   pal["text_secondary"], sub_lh,   sub_sp)
     cur_y += 14
-    draw_lines(draw, x, cur_y, meta_lines, meta_font, LIGHT_TEXT_META, meta_lh, meta_sp)
+    draw_lines(draw, x, cur_y, meta_lines, meta_font, pal["text_meta"], meta_lh, meta_sp)
 
     _draw_light_progress_bar(draw, calc_progress(session), x, py,
-                             cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress)
+                             cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress, pal)
     if show_updated:
+        # Unterhalb des Textblocks statt oben rechts – dort läge der Stempel auf dem Cover
         stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
-        draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, TIMESTAMP_Y), stamp,
-                  font=font_small, fill=LIGHT_TEXT_META)
+        draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, text_bottom + 14), stamp,
+                  font=font_small, fill=pal["text_meta"])
     return img
 
 
 def draw_music_overlay_light(base: Image.Image, session: dict, cover_bottom: int) -> Image.Image:
     cfg = get_cfg()
+    pal = _flat_palette(cfg.display_theme)
     img  = base.copy()
     draw = ImageDraw.Draw(img)
 
@@ -352,20 +381,21 @@ def draw_music_overlay_light(base: Image.Image, session: dict, cover_bottom: int
     block_h = (title_th + (14 if artist_lines else 0) + artist_th
                + (12 if album_lines else 0) + album_th + 12 + info_th)
     cur_y   = max(text_top, text_bottom - block_h)
-    cur_y   = draw_lines(draw, x, cur_y, title_lines,  title_font,  LIGHT_TEXT_PRIMARY,   title_lh,  title_sp)
+    cur_y   = draw_lines(draw, x, cur_y, title_lines,  title_font,  pal["text_primary"],   title_lh,  title_sp)
     if artist_lines:
         cur_y += 14
-        cur_y = draw_lines(draw, x, cur_y, artist_lines, artist_font, LIGHT_TEXT_SECONDARY, artist_lh, artist_sp)
+        cur_y = draw_lines(draw, x, cur_y, artist_lines, artist_font, pal["text_secondary"], artist_lh, artist_sp)
     if album_lines:
         cur_y += 12
-        cur_y = draw_lines(draw, x, cur_y, album_lines,  album_font,  LIGHT_TEXT_META,      album_lh,  album_sp)
+        cur_y = draw_lines(draw, x, cur_y, album_lines,  album_font,  pal["text_meta"],      album_lh,  album_sp)
     cur_y += 12
-    draw_lines(draw, x, cur_y, info_lines, info_font, LIGHT_TEXT_META, info_lh, info_sp)
+    draw_lines(draw, x, cur_y, info_lines, info_font, pal["text_meta"], info_lh, info_sp)
 
     _draw_light_progress_bar(draw, calc_progress(session), x, py,
-                             cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress)
+                             cfg.render_width - 2 * x, PROGRESS_BAR_HEIGHT, show_progress, pal)
     if show_updated:
+        # Unterhalb des Textblocks statt oben rechts – dort läge der Stempel auf dem Cover
         stamp = now_local().strftime("Aktualisiert: %d.%m.%Y %H:%M")
-        draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, TIMESTAMP_Y), stamp,
-                  font=font_small, fill=LIGHT_TEXT_META)
+        draw.text((cfg.render_width - TIMESTAMP_X_OFFSET, text_bottom + 14), stamp,
+                  font=font_small, fill=pal["text_meta"])
     return img

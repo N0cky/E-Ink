@@ -8,7 +8,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from app.config import format_weekday_short
+from app.config import format_date_long, format_weekday_short
+from app.image_rendering import SPECTRA6_COLORS
 from app.module_services import ModuleRenderServices
 from app.text_rendering import draw_lines, fit_wrapped_text
 
@@ -240,7 +241,83 @@ _DWD_LIGHT: dict = {
 }
 
 
+def _spectra(name: str, alpha: int = 255) -> tuple[int, int, int, int]:
+    from app.image_rendering import SPECTRA6_COLORS as _C
+    return (*_C[name], alpha)
+
+
+# E-Ink: ausschließlich die sechs Spectra-Farben, alles deckend. Was hier
+# steht, wird auf dem Display ohne Dithering dargestellt. "flat" schaltet
+# in den Zeichenfunktionen Transparenzen und Blur ab.
+_DWD_EINK: dict = {
+    "flat":                True,
+    "bg_top":              _spectra("white")[:3],
+    "bg_bottom":           _spectra("white")[:3],
+    "panel_tint":          _spectra("white"),
+    "panel_outline":       _spectra("black"),
+    "header_idle":         _spectra("black"),
+    "header_station":      _spectra("blue"),
+    "temp_big":            _spectra("black"),
+    "condition":           _spectra("black"),
+    "badge_fill":          _spectra("blue"),
+    "badge_outline":       _spectra("blue"),
+    "badge_text":          _spectra("white"),
+    "icon_main":           _spectra("blue"),
+    "sun_icon":            _spectra("yellow"),
+    "sun_arrow":           _spectra("black"),
+    "sun_label":           _spectra("black"),
+    "sun_value":           _spectra("black"),
+    "moon_icon":           _spectra("blue"),
+    "moon_arrow":          _spectra("black"),
+    "moon_label":          _spectra("black"),
+    "moon_value":          _spectra("black"),
+    "moon_disc_lit":       _spectra("white"),
+    "moon_disc_dark":      _spectra("black"),
+    "moon_disc_border":    _spectra("black"),
+    "moon_disc_label":     _spectra("black"),
+    "divider":             _spectra("black"),
+    "stat_glass_tint":     _spectra("white"),
+    "stat_glass_outline":  _spectra("black"),
+    "stat_icon":           _spectra("blue"),
+    "stat_label":          _spectra("black"),
+    "stat_value":          _spectra("black"),
+    "chart_title":         _spectra("black"),
+    "chart_nodata":        _spectra("black"),
+    "grid":                _spectra("black"),
+    "baseline":            _spectra("black"),
+    "axis_label":          _spectra("black"),
+    "curve_fill":          _spectra("blue"),
+    "curve_line":          _spectra("black"),
+    "point_outer":         _spectra("black"),
+    "point_inner":         _spectra("white"),
+    "hourly_icon":         _spectra("blue"),
+    "hourly_temp":         _spectra("black"),
+    "hourly_time":         _spectra("black"),
+    "fc_glass_tint":       _spectra("white"),
+    "fc_glass_outline":    _spectra("black"),
+    "fc_icon":             _spectra("blue"),
+    "fc_day":              _spectra("black"),
+    "fc_temp":             _spectra("black"),
+    "fc_sun_text":         _spectra("black"),
+    "fc_wind_text":        _spectra("black"),
+    "fc_uv_text":          _spectra("black"),
+    "fc_sun_icon":         _spectra("yellow"),
+    "fc_wind_icon":        _spectra("blue"),
+    "pollen_glass_tint":   _spectra("white"),
+    "pollen_glass_outline": _spectra("black"),
+    "pollen_title":        _spectra("black"),
+    "pollen_label":        _spectra("black"),
+    "warning_glass_tint":  _spectra("yellow"),
+    "warning_glass_outline": _spectra("black"),
+    "warning_title":       _spectra("black"),
+    "warning_text":        _spectra("black"),
+    "warning_meta":        _spectra("black"),
+}
+
+
 def get_dwd_palette(theme: str) -> dict:
+    if theme == "eink":
+        return _DWD_EINK
     return _DWD_LIGHT if theme == "light" else _DWD_DARK
 
 
@@ -254,7 +331,9 @@ def warning_level_label(level: int | None) -> str:
     }.get(level, "Warnung")
 
 
-def warning_level_color(level: int | None) -> tuple[int, int, int]:
+def warning_level_color(level: int | None, flat: bool = False) -> tuple[int, int, int]:
+    if flat:
+        return SPECTRA6_COLORS["red"] if (level or 0) >= 3 else SPECTRA6_COLORS["yellow"]
     if level is None:
         return (222, 176, 36)
     if level >= 4:
@@ -990,7 +1069,11 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
     for i, point in enumerate(hourly_points):
         px, py = points[i]
         day_offset = int(point.get("day_offset", 1 if point.get("is_next_day") else 0))
-        alpha = 160 if day_offset == 1 else 110 if day_offset >= 2 else None
+        # Flat-Themes (E-Ink): keine Transparenz, sonst dithert es
+        if pal.get("flat"):
+            alpha = None
+        else:
+            alpha = 160 if day_offset == 1 else 110 if day_offset >= 2 else None
         outer_fill = (*pal["point_outer"][:3], alpha) if alpha is not None else pal["point_outer"]
         inner_fill = (*pal["point_inner"][:3], alpha) if alpha is not None else pal["point_inner"]
         icon_fill  = (*pal["hourly_icon"][:3], alpha) if alpha is not None else pal["hourly_icon"]
@@ -1135,8 +1218,16 @@ _POLLEN_DAY_KEYS   = ("today",  "tomorrow", "dayafter_to")
 _POLLEN_DAY_LABELS = ("Heute",  "Morgen",   "Überm.")
 
 
-def _pollen_load_color(value: float | None) -> tuple[int, int, int]:
-    """Belastungswert 0..3 → lebendige RGB-Farbe."""
+def _pollen_load_color(value: float | None, flat: bool = False) -> tuple[int, int, int]:
+    """Belastungswert 0..3 → RGB. flat=True nutzt nur Spectra-6-Farben (E-Ink)."""
+    if flat:
+        if value is None or value == 0.0:
+            return SPECTRA6_COLORS["white"]
+        if value <= 1.0:
+            return SPECTRA6_COLORS["green"]
+        if value <= 2.0:
+            return SPECTRA6_COLORS["yellow"]
+        return SPECTRA6_COLORS["red"]
     if value is None or value == 0.0:
         return (148, 155, 165)   # Grau  – keine Belastung
     if value <= 1.0:
@@ -1288,7 +1379,7 @@ def draw_pollen_strip(img: Image.Image, bounds: tuple,
         day_values = [days.get(k) for k in _POLLEN_DAY_KEYS]
         valid_vals = [v for v in day_values if v is not None]
         max_val    = max(valid_vals) if valid_vals else None
-        main_color = _pollen_load_color(max_val)
+        main_color = _pollen_load_color(max_val, flat=pal.get("flat", False))
 
         # Haupt-Farbpunkt (Peak der 3 Tage)
         dot_cx = col_left + _POLLEN_BIG_R
@@ -1307,7 +1398,7 @@ def draw_pollen_strip(img: Image.Image, bounds: tuple,
         # Drei Tageswerte
         day_x = name_x + _POLLEN_NAME_W
         for day_val in day_values:
-            color    = _pollen_load_color(day_val)
+            color    = _pollen_load_color(day_val, flat=pal.get("flat", False))
             val_text = _pollen_load_label(day_val)
 
             draw.ellipse(
@@ -1348,7 +1439,9 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     pal = get_dwd_palette(theme)
 
     # Hintergrund
-    if theme == "light":
+    if pal.get("flat"):
+        img = Image.new("RGBA", (rw, rh), (*pal["bg_top"], 255))   # E-Ink: flach, kein Verlauf
+    elif theme == "light":
         img = create_weather_background_light(rw, rh).convert("RGBA")
     else:
         img = create_weather_background(rw, rh).convert("RGBA")
@@ -1361,17 +1454,18 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     font_condition     = context.load_font(34, True)
     font_value         = context.load_font(28, True)
     font_label         = context.load_font(21, True)
-    font_micro         = context.load_font(16, False)
+    flat               = bool(pal.get("flat"))
+    font_micro         = context.load_font(18 if flat else 16, False)
     font_warning_title = context.load_font(22, True)
     font_chart_title   = context.load_font(22, True)
-    font_chart_time    = context.load_font(13, False)
-    font_chart_temp    = context.load_font(16, True)
+    font_chart_time    = context.load_font(16 if flat else 13, False)
+    font_chart_temp    = context.load_font(18 if flat else 16, True)
     font_forecast_day  = context.load_font(20, True)
     font_forecast_temp = context.load_font(22, True)
     font_forecast_meta = context.load_font(19, False)
 
     # Kopfzeile
-    draw.text((70, 52), "Plex ist aktuell idle",
+    draw.text((70, 52), format_date_long(),
               font=font_idle, fill=pal["header_idle"])
     station_label = data.get("station_name") or f"DWD-Station {data.get('station_id', '--')}"
     draw.text((70, 92), f"DWD Wetter  ·  {station_label}",

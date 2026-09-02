@@ -122,12 +122,14 @@ SETTINGS_FIELDS: list[dict] = [
         "wide":    True,
         "options": [
             ("dark",  "🌑 Dark – verschwommenes Artwork, weißer Text"),
-            ("light", "☀️ Light – heller Hintergrund für E-Ink-Farbdisplay (Spectra 6, 1600×1200)"),
+            ("light", "☀️ Light – heller Hintergrund, weiche Verläufe"),
+            ("eink",  "📄 E-Ink – flache Spectra-6-Farben, kein Blur, dicke Linien"),
         ],
         "help": (
             "Steuert das Aussehen aller generierten Bilder. "
-            "Dark: Artwork-Blur-Hintergrund mit weißem Text. "
-            "Light: cremefarbener Hintergrund – optimiert für Waveshare 13,3″ Spectra 6."
+            "Dark und Light sind für Bildschirme gedacht. "
+            "E-Ink nutzt nur die sechs Displayfarben ohne Verläufe und Transparenzen, "
+            "damit auf dem Spectra-6-Display nichts zu Dithering-Rauschen wird."
         ),
     },
     {
@@ -406,8 +408,15 @@ def get_cfg() -> RuntimeConfig:
     return _cfg
 
 
-# Alle Display-Themes, die Module kennen müssen (Settings-Select + Vorschau)
-AVAILABLE_THEMES: tuple[str, ...] = ("dark", "light")
+# Alle Display-Themes, die Module kennen müssen (Settings-Select + Vorschau).
+# "eink": nur die sechs Spectra-6-Farben, flach, ohne Blur – siehe SPECTRA6_COLORS.
+AVAILABLE_THEMES: tuple[str, ...] = ("dark", "light", "eink")
+THEME_LABELS = {"dark": "Dark", "light": "Light", "eink": "E-Ink"}
+
+
+def is_flat_theme(theme: str) -> bool:
+    """True für Themes ohne Blur/Verläufe/Transparenz (derzeit nur eink)."""
+    return theme == "eink"
 
 
 @contextlib.contextmanager
@@ -604,7 +613,9 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     idle_modules_raw = get_env_value(settings, "IDLE_MODULES", "")
     refresh_interval = _parse_int(settings, "REFRESH_INTERVAL", 60, 10, 3600)
     output_format = get_env_value(settings, "OUTPUT_FORMAT", "png")
-    display_theme = get_env_value(settings, "DISPLAY_THEME", "dark")
+    display_theme = get_env_value(settings, "DISPLAY_THEME", "dark").strip().lower()
+    if display_theme not in AVAILABLE_THEMES:
+        display_theme = "dark"
     timezone_name = get_env_value(settings, "TIMEZONE", "Europe/Berlin")
     idle_module_ids = parse_idle_module_ids(idle_modules_raw)
     idle_rotation_seconds = _parse_int(settings, "IDLE_MODULE_ROTATION_SECONDS", 120, 30, 3600)
@@ -702,7 +713,7 @@ def get_settings_runtime_summary() -> dict[str, str]:
     return {
         "render_size":         f"{cfg.render_width}x{cfg.render_height}",
         "rotation":            f"{cfg.display_rotation}°",
-        "theme":               "Light" if cfg.display_theme == "light" else "Dark",
+        "theme":               THEME_LABELS.get(cfg.display_theme, cfg.display_theme),
         "output_format":       "BMP (Spectra 6)" if cfg.output_format == "bmp" else "PNG",
         "idle_modules":        ", ".join(cfg.idle_module_ids) if cfg.idle_module_ids else "Keine",
         "idle_rotation":       f"{cfg.idle_module_rotation_seconds}s",
@@ -718,6 +729,15 @@ def get_settings_runtime_summary() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 WEEKDAYS_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+WEEKDAYS_DE_LONG = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+MONTHS_DE = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+             "August", "September", "Oktober", "November", "Dezember")
+
+
+def format_date_long(d=None) -> str:
+    """'Mittwoch, 3. September' – für Kopfzeilen auf dem Display."""
+    d = d or now_local()
+    return f"{WEEKDAYS_DE_LONG[d.weekday()]}, {d.day}. {MONTHS_DE[d.month - 1]}"
 
 
 def local_tz():

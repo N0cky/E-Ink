@@ -250,7 +250,13 @@ def render_no_content_image() -> Image.Image:
     cfg = get_cfg()
     w, h = cfg.render_width, cfg.render_height
 
-    if cfg.display_theme == "light":
+    if cfg.display_theme == "eink":
+        from app.image_rendering import SPECTRA6_COLORS
+        bg_col     = SPECTRA6_COLORS["white"]
+        text_col   = SPECTRA6_COLORS["black"]
+        muted_col  = SPECTRA6_COLORS["blue"]
+        border_col = SPECTRA6_COLORS["black"]
+    elif cfg.display_theme == "light":
         bg_col     = (238, 234, 228)
         text_col   = (24, 20, 14)
         muted_col  = (110, 101, 92)

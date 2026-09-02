@@ -3,11 +3,22 @@ from __future__ import annotations
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from app.text_rendering import draw_lines, fit_wrapped_text
-from app.image_rendering import create_blurred_cover_background, fit_crop, resize_to_fit
+from app.image_rendering import SPECTRA6_COLORS, create_blurred_cover_background, fit_crop, resize_to_fit
 from app.module_services import ModuleRenderServices
 
 
 def _create_fit_canvas(img: Image.Image, target_w: int, target_h: int, theme: str) -> Image.Image:
+    if theme == "eink":
+        # Flach: weißer Grund, Bild zentriert, schwarzer Rahmen. Kein Blur, kein Schatten.
+        canvas = Image.new("RGB", (target_w, target_h), SPECTRA6_COLORS["white"])
+        fitted = resize_to_fit(img, target_w - 48, target_h - 48)
+        fw, fh = fitted.size
+        fx = (target_w - fw) // 2
+        fy = (target_h - fh) // 2
+        ImageDraw.Draw(canvas).rectangle([(fx - 6, fy - 6), (fx + fw + 5, fy + fh + 5)], fill=SPECTRA6_COLORS["black"])
+        canvas.paste(fitted, (fx, fy))
+        return canvas
+
     if theme == "light":
         blurred_bg = fit_crop(img, target_w, target_h).filter(ImageFilter.GaussianBlur(radius=48)).convert("RGBA")
         blurred_bg.alpha_composite(Image.new("RGBA", (target_w, target_h), (250, 248, 244, 175)))
@@ -71,7 +82,12 @@ def _draw_overlay(base: Image.Image, services: ModuleRenderServices, caption: st
     panel_y = target_h - panel_h - 52
     radius = 26
 
-    if services.display_theme == "light":
+    flat = services.display_theme == "eink"
+    if flat:
+        panel_fill = (*SPECTRA6_COLORS["white"], 255)
+        border_fill = (*SPECTRA6_COLORS["black"], 255)
+        text_fill = (*SPECTRA6_COLORS["black"], 255)
+    elif services.display_theme == "light":
         panel_fill = (248, 244, 238, 212)
         border_fill = (180, 172, 160, 95)
         text_fill = (28, 24, 19, 255)
@@ -84,12 +100,13 @@ def _draw_overlay(base: Image.Image, services: ModuleRenderServices, caption: st
     overlay_draw = ImageDraw.Draw(overlay, "RGBA")
     overlay_draw.rounded_rectangle(
         [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
-        radius=radius,
+        radius=0 if flat else radius,
         fill=panel_fill,
         outline=border_fill,
-        width=1,
+        width=4 if flat else 1,
     )
-    overlay = overlay.filter(ImageFilter.GaussianBlur(radius=12))
+    if not flat:
+        overlay = overlay.filter(ImageFilter.GaussianBlur(radius=12))
     img.alpha_composite(overlay)
 
     font, lines, line_h, line_spacing, _ = fit_wrapped_text(
