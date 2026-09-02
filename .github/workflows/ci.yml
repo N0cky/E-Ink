@@ -23,13 +23,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r app/requirements.txt
 
-      - name: Byte-compile
-        run: |
-          python -m py_compile app/config.py app/http_client.py app/idle_news_rendering.py app/image_rendering.py app/logger.py app/module_base.py app/module_registry.py app/module_services.py app/plex.py app/server.py wsgi.py modules/dwd_weather/__init__.py modules/dwd_weather/dwd.py modules/dwd_weather/dwd_pollen.py modules/dwd_weather/dwd_uv.py modules/dwd_weather/renderer.py modules/gallery/__init__.py modules/gallery/data_source.py modules/gallery/renderer.py modules/plex/__init__.py modules/tagesschau/__init__.py modules/tagesschau/data_source.py modules/tagesschau/renderer.py tests/test_module_registry.py tests/test_settings_validation.py tests/test_gallery_data_source.py
+      - name: Install fonts (same as the Docker image)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+
+      - name: Byte-compile everything
+        run: python -m compileall -q app modules tests wsgi.py
 
       - name: Run tests
-        run: |
-          python -m unittest tests.test_module_registry tests.test_settings_validation tests.test_gallery_data_source
+        # -t . lädt tests/ als Paket, damit tests/__init__.py die Isolation
+        # (Temp-Config, Temp-Output, Temp-Logs) vor dem ersten app-Import setzt
+        run: python -m unittest discover -s tests -t . -v
 
       - name: Template smoke test
         run: |

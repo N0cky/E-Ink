@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -243,7 +244,10 @@ class SettingsValidationFlowTest(unittest.TestCase):
         thread_ctor.assert_called_once()
 
     def test_default_config_file_path_points_to_config_directory(self) -> None:
+        # tests/__init__.py setzt PLEXINK_CONFIG_FILE für die Isolation – hier
+        # wird explizit der Zustand "nicht gesetzt" geprüft.
         with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("PLEXINK_CONFIG_FILE", None)
             self.assertEqual(resolve_env_file_path(), CONFIG_DIR / "settings.env")
 
     def test_custom_config_file_path_is_respected(self) -> None:

@@ -21,8 +21,8 @@ Thanks for taking the time to contribute to PlexImageE-Ink.
 
 Please make sure the following pass locally:
 
-1. `python -m py_compile app/server.py app/module_base.py wsgi.py`
-2. `python -m unittest tests.test_module_registry tests.test_settings_validation tests.test_gallery_data_source`
+1. `python -m compileall -q app modules tests wsgi.py`
+2. `python -m unittest discover -s tests -t .` (the `-t .` matters: it loads `tests/` as a package so the test isolation in `tests/__init__.py` applies and your local `config/settings.env` is never touched)
 3. Template smoke test:
 
 ```bash

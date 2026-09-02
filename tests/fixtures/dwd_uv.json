@@ -1,0 +1,33 @@
+{
+ "content": [
+  {
+   "forecast": {
+    "tomorrow": 3,
+    "today": 2,
+    "dayafter_to": 1
+   },
+   "city": "List auf Sylt"
+  },
+  {
+   "forecast": {
+    "tomorrow": 1,
+    "today": 3,
+    "dayafter_to": 1
+   },
+   "city": "Seehausen"
+  },
+  {
+   "city": "Hahn",
+   "forecast": {
+    "tomorrow": 4,
+    "today": 3,
+    "dayafter_to": 4
+   }
+  }
+ ],
+ "sender": "Deutscher Wetterdienst - Medizin-Meteorologie",
+ "name": "UV-Gefahrenindex",
+ "forecast_day": "2026-09-02",
+ "last_update": "2026-09-02T07:30:00",
+ "next_update": "2026-09-03T07:30:00"
+}

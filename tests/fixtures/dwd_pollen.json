@@ -1,0 +1,120 @@
+{
+ "content": [
+  {
+   "partregion_name": "Inseln und Marschen",
+   "Pollen": {
+    "Beifuss": {
+     "dayafter_to": "0",
+     "today": "0-1",
+     "tomorrow": "0"
+    },
+    "Esche": {
+     "tomorrow": "0",
+     "dayafter_to": "0",
+     "today": "0"
+    },
+    "Hasel": {
+     "tomorrow": "0",
+     "dayafter_to": "0",
+     "today": "0"
+    },
+    "Birke": {
+     "today": "0",
+     "dayafter_to": "0",
+     "tomorrow": "0"
+    },
+    "Graeser": {
+     "today": "0-1",
+     "dayafter_to": "0",
+     "tomorrow": "0"
+    },
+    "Ambrosia": {
+     "dayafter_to": "0",
+     "today": "0",
+     "tomorrow": "0"
+    },
+    "Roggen": {
+     "dayafter_to": "0",
+     "today": "0",
+     "tomorrow": "0"
+    },
+    "Erle": {
+     "today": "0",
+     "dayafter_to": "0",
+     "tomorrow": "0"
+    }
+   },
+   "region_id": 10,
+   "partregion_id": 11,
+   "region_name": "Schleswig-Holstein und Hamburg"
+  },
+  {
+   "partregion_id": 12,
+   "region_name": "Schleswig-Holstein und Hamburg",
+   "partregion_name": "Geest,Schleswig-Holstein und Hamburg",
+   "Pollen": {
+    "Hasel": {
+     "today": "0",
+     "dayafter_to": "0",
+     "tomorrow": "0"
+    },
+    "Esche": {
+     "dayafter_to": "0",
+     "today": "0",
+     "tomorrow": "0"
+    },
+    "Birke": {
+     "dayafter_to": "0",
+     "today": "0",
+     "tomorrow": "0"
+    },
+    "Graeser": {
+     "today": "0-1",
+     "dayafter_to": "0",
+     "tomorrow": "0"
+    },
+    "Beifuss": {
+     "dayafter_to": "0",
+     "today": "0-1",
+     "tomorrow": "0"
+    },
+    "Erle": {
+     "tomorrow": "0",
+     "dayafter_to": "0",
+     "today": "0"
+    },
+    "Ambrosia": {
+     "tomorrow": "0",
+     "dayafter_to": "0",
+     "today": "0-1"
+    },
+    "Roggen": {
+     "dayafter_to": "0",
+     "today": "0",
+     "tomorrow": "0"
+    }
+   },
+   "region_id": 10
+  }
+ ],
+ "last_update": "2026-09-02 11:00 Uhr",
+ "legend": {
+  "id6_desc": "mittlere bis hohe Belastung",
+  "id7_desc": "hohe Belastung",
+  "id3_desc": "geringe Belastung",
+  "id5": "2",
+  "id2": "0-1",
+  "id2_desc": "keine bis geringe Belastung",
+  "id6": "2-3",
+  "id7": "3",
+  "id4_desc": "geringe bis mittlere Belastung",
+  "id1_desc": "keine Belastung",
+  "id3": "1",
+  "id1": "0",
+  "id4": "1-2",
+  "id5_desc": "mittlere Belastung"
+ },
+ "next_update": "2026-09-03 11:00 Uhr",
+ "sender": "Deutscher Wetterdienst - Medizin-Meteorologie",
+ "name": "Pollenflug-Gefahrenindex für Deutschland ausgegeben vom Deutschen Wetterdienst"
+}
