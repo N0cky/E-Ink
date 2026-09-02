@@ -6,7 +6,33 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 
 ## [Unreleased]
 
-- Ongoing refinements before the first public release.
+### Added
+
+- `DISPLAY_THEME=eink`: flat theme using only the six Spectra 6 colours, no blur, gradients or shadows – nothing turns into dithering noise on the panel
+- Dashboard mode (`IDLE_LAYOUT=dashboard`, `DASHBOARD_TILES`): several idle modules stacked as tiles in one image; new optional module hook `render_tile()`
+- `Müllabfuhr` module: municipal ICS collection calendars with bin colours, `{year}` placeholder in the URL, several addresses
+- `Kalender` module: ICS calendars (Google, Nextcloud, iCloud, Outlook) with recurring events, time zones, multi-day events and a colour per source
+- On-demand module preview `/api/preview/<module>.png` with theme override and 6-colour display simulation, wired into the settings page
+- Optional `PLEXINK_UI_PASSWORD` (HTTP Basic Auth for the web UI; ESP32 endpoints stay open)
+- Render smoke tests with recorded API fixtures for every module in every theme; test isolation from the local config
+
+### Changed
+
+- Rendering is serialised (one render at a time), images are written atomically and the hash comes from the written bytes – the ESP32 can no longer download a half-written file or a stale hash
+- `/refresh`, `/webhook` and saving settings wake the render worker instead of rendering inside the request; Gunicorn runs with 4 threads and a 120 s timeout
+- Plex and Steam code, the Plex overlays and the Tagesschau drawing code moved from `app/` into their modules; `app/text_rendering.py` holds the shared text helpers; `ModuleRenderServices` reduced to size, theme and fonts
+- Settings status cards and the startup log are generated from every module's `get_runtime_summary()` (labels as keys)
+- DWD and Tagesschau headers show the date instead of "Plex ist aktuell idle"
+- Data sources back off for 5 minutes after a failed fetch instead of retrying every tick; Plex being unreachable is logged once, not per tick
+- Plex posters and Steam artwork are cached between renders; Steam profile resolution no longer caches failures forever
+- `/api/logs` reads newest-first and stops at the limit; log file level is INFO
+- Secrets never appear in the settings HTML (empty password fields keep the stored value) and are masked in every log line; settings values are quoted on write and no longer exported to the process environment
+
+### Fixed
+
+- Time zones in Docker: hourly weather labels, "Aktualisiert" stamps and weekday names (`Mi` instead of `Wed`) use the configured zone and German names
+- A failed render is retried on the next tick instead of leaving the old image up
+- Module rescan no longer wipes packages it did not load itself
 
 ## [0.1.0] - 2026-04-20
 
