@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import get_cfg, get_csv_setting, get_setting
 from app.logger import get_logger
-from app.http_client import HTTP_SESSION
+from app.http_client import HTTP_SESSION, FETCH_RETRY_BACKOFF_SECONDS
 
 log = get_logger(__name__)
 
@@ -65,7 +65,7 @@ ALLERGEN_LABELS: dict[str, str] = {
 # Cache (Thread-sicher)
 # ---------------------------------------------------------------------------
 
-_POLLEN_CACHE: dict = {"fetched_at": 0.0, "region_key": "", "data": None, "next_refresh_at": 0.0}
+_POLLEN_CACHE: dict = {"fetched_at": 0.0, "last_attempt_at": 0.0, "region_key": "", "data": None, "next_refresh_at": 0.0}
 _POLLEN_LOCK  = threading.Lock()
 
 
@@ -199,12 +199,22 @@ def fetch_dwd_pollen(force_refresh: bool = False) -> dict | None:
             # daher nochmal filtern bevor wir zurückgeben.
             return _filter_cached(cached["data"], selected_allergens)
 
+        # Backoff nach Fehlschlag oder "Region nicht gefunden"
+        if (not force_refresh
+                and cached["region_key"] == region_key
+                and now - cached["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS):
+            if cached.get("data"):
+                return _filter_cached(cached["data"], selected_allergens)
+            return None
+        cached["last_attempt_at"] = now
+        cached["region_key"] = region_key
+
         try:
             resp = HTTP_SESSION.get(DWD_POLLEN_URL, timeout=15)
             resp.raise_for_status()
             js = resp.json()
         except Exception as exc:
-            log.error(f"Pollen fetch-Fehler: {exc}", exc_info=True)
+            log.warning(f"Pollen fetch-Fehler: {exc} – nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
             if cached.get("data"):
                 return _filter_cached(cached["data"], selected_allergens)
             return None
@@ -213,7 +223,8 @@ def fetch_dwd_pollen(force_refresh: bool = False) -> dict | None:
         entry = _find_region(content, region_id)
         if entry is None:
             log.warning(f"region_id={region_id} nicht in der DWD-API gefunden. "
-                  f"Verfügbare IDs: {sorted({e.get('region_id') for e in content})}")
+                  f"Verfügbare IDs: {sorted({e.get('region_id') for e in content})} – "
+                  f"nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
             return None
 
         last_update_dt = _parse_pollen_update_timestamp(js.get("last_update"))
@@ -273,10 +284,14 @@ def should_refresh_dwd_pollen() -> bool:
         if not get_setting("DWD_POLLEN_REGION", "") or not get_csv_setting("DWD_POLLEN_ALLERGENS"):
             return False
         cached = _POLLEN_CACHE
+        now = time.time()
+        region_key = get_setting("DWD_POLLEN_REGION", "").strip()
+        if cached["region_key"] == region_key and now - cached["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS:
+            return False
         if cached["data"] is None:
             return True
         next_refresh_at = cached.get("next_refresh_at", 0.0)
         return (
-            (time.time() - cached["fetched_at"]) >= DEFAULT_POLLEN_CACHE_SECONDS
-            or (next_refresh_at and time.time() >= next_refresh_at and cached["fetched_at"] < next_refresh_at)
+            (now - cached["fetched_at"]) >= DEFAULT_POLLEN_CACHE_SECONDS
+            or (next_refresh_at and now >= next_refresh_at and cached["fetched_at"] < next_refresh_at)
         )

@@ -7,9 +7,10 @@ Module werden beim Start automatisch aus dem modules/-Verzeichnis geladen.
 
 from __future__ import annotations
 
-import copy
 import hashlib
+import io
 import json as _json
+import os
 import time
 import threading
 from datetime import datetime, timezone
@@ -68,6 +69,15 @@ _last_ack: dict = {}
 _runtime_lock = threading.Lock()
 _runtime_started = False
 _worker_thread: threading.Thread | None = None
+
+# Render-Serialisierung: genau ein Render gleichzeitig (Worker ODER Request).
+# Requests rendern nicht selbst, sondern wecken den Worker per Event.
+_render_lock = threading.Lock()
+_wake_event = threading.Event()
+_render_cond = threading.Condition()
+_render_generation = 0          # zählt abgeschlossene Render-Zyklen
+_render_in_progress = False
+_force_render_requested = False
 
 
 def _get_local_now() -> datetime:
@@ -253,24 +263,45 @@ def render_no_content_image() -> Image.Image:
 # Bild speichern + ESP32-State aktualisieren
 # ---------------------------------------------------------------------------
 
+def _atomic_write_bytes(path, data: bytes) -> None:
+    """Schreibt in eine tmp-Datei und tauscht atomar. Leser sehen nie halbe Dateien."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def _encode_image(image: Image.Image, fmt: str) -> bytes:
+    buf = io.BytesIO()
+    image.save(buf, fmt)
+    return buf.getvalue()
+
+
 def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
     cfg = get_cfg()
 
     if should_flip_output(cfg.display_rotation):
         image = image.transpose(Image.Transpose.ROTATE_180)
 
+    # Alle Bytes zuerst im Speicher erzeugen, Hash daraus berechnen,
+    # dann atomar schreiben. Erst danach den ESP32-State umschalten,
+    # damit /meta.json nie einen neuen Hash zu einer alten Datei liefert.
     if cfg.output_format == "bmp":
         device_img, preview_img = convert_to_spectra6(image)
-        device_img.save(str(CURRENT_BMP_PATH), "BMP")
-        preview_img.save(str(CURRENT_IMAGE_PATH), "PNG")
+        device_bytes  = _encode_image(device_img, "BMP")
+        preview_bytes = _encode_image(preview_img, "PNG")
+        image_hash = hashlib.md5(device_bytes).hexdigest()
+        _atomic_write_bytes(CURRENT_IMAGE_PATH, preview_bytes)
+        _atomic_write_bytes(CURRENT_BMP_PATH, device_bytes)
     else:
-        image.save(str(CURRENT_IMAGE_PATH), "PNG")
+        png_bytes = _encode_image(image, "PNG")
+        image_hash = hashlib.md5(png_bytes).hexdigest()
+        _atomic_write_bytes(CURRENT_IMAGE_PATH, png_bytes)
 
-    STATE_PATH.write_text(state_key, encoding="utf-8")
+    _atomic_write_bytes(STATE_PATH, state_key.encode("utf-8"))
 
     global _esp32_state
     _esp32_state = {
-        "hash":        _compute_image_hash(),
+        "hash":        image_hash,
         "format":      cfg.output_format,
         "state":       state_key,
         "media_type":  module_id,
@@ -287,14 +318,22 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
 # Kern-Rendering-Logik (wird von periodic_worker + /refresh genutzt)
 # ---------------------------------------------------------------------------
 
-def render_if_changed(last_state_key: str | None) -> str:
+def render_if_changed(last_state_key: str | None) -> str | None:
     """
     Iteriert Module in Prioritätsreihenfolge, rendert wenn Inhalt vorhanden
     und der State-Key sich geändert hat (oder should_refresh() True ist).
-    Gibt den aktuellen State-Key zurück.
+    Gibt den aktuellen State-Key zurück. Schlägt das Rendern fehl, wird der
+    alte State-Key zurückgegeben, damit der nächste Tick es erneut versucht.
+
+    Läuft vollständig unter _render_lock: Worker und Requests können nie
+    gleichzeitig rendern oder schreiben.
     """
+    with _render_lock:
+        return _render_if_changed_locked(last_state_key)
+
+
+def _render_if_changed_locked(last_state_key: str | None) -> str | None:
     env = get_settings_values()
-    cfg = get_cfg()
 
     # ── 1. Prioritätsmodule (MODULE_PRIORITY < 10, z. B. Plex) ───────────────
     for mod in _registry.get_priority_modules():
@@ -316,6 +355,7 @@ def render_if_changed(last_state_key: str | None) -> str:
                 _save_image(image, state_key, mod.MODULE_ID)
             except Exception as exc:
                 log.error(f"render [{mod.MODULE_ID}]: {exc}", exc_info=True)
+                return last_state_key
         return state_key
 
     # ── 2. Idle-Module in Rotation (MODULE_PRIORITY >= 10) ───────────────────
@@ -341,6 +381,7 @@ def render_if_changed(last_state_key: str | None) -> str:
                     _save_image(image, state_key, mod.MODULE_ID)
                 except Exception as exc:
                     log.error(f"render [{mod.MODULE_ID}]: {exc}", exc_info=True)
+                    return last_state_key
             return state_key
 
     # ── 3. Kein Modul hat Inhalt → Placeholder ───────────────────────────────
@@ -349,12 +390,31 @@ def render_if_changed(last_state_key: str | None) -> str:
             _save_image(render_no_content_image(), "__no_content__", "none")
         except Exception as exc:
             log.error(f"render placeholder: {exc}", exc_info=True)
+            return last_state_key
     return "__no_content__"
 
 
-def render_image() -> str:
-    """Erzwingt einen Neu-Render (ignoriert last_state_key). Gibt State-Key zurück."""
-    return render_if_changed(object())   # object() != irgendein str → immer neu
+def render_image() -> str | None:
+    """Erzwingt einen synchronen Neu-Render (ignoriert last_state_key). Gibt State-Key zurück."""
+    return render_if_changed(None)   # None != irgendein str → immer neu
+
+
+def request_render(wait_seconds: float = 0.0) -> bool:
+    """
+    Fordert vom Worker einen erzwungenen Render an, ohne selbst zu rendern.
+    Mit wait_seconds > 0 wird auf den Abschluss gewartet. Gibt True zurück,
+    wenn der Render innerhalb der Wartezeit abgeschlossen wurde.
+    """
+    global _force_render_requested
+    with _render_cond:
+        _force_render_requested = True
+        # Läuft gerade ein Render, enthält er unsere Anforderung noch nicht:
+        # dann erst der übernächste Abschluss zählt.
+        target = _render_generation + (2 if _render_in_progress else 1)
+        _wake_event.set()
+        if wait_seconds <= 0:
+            return False
+        return _render_cond.wait_for(lambda: _render_generation >= target, timeout=wait_seconds)
 
 
 def _get_background_poll_seconds() -> int:
@@ -384,16 +444,37 @@ def _get_background_poll_seconds() -> int:
 # Background-Worker
 # ---------------------------------------------------------------------------
 
+def _run_worker_cycle(last_state_key: str | None) -> str | None:
+    """Ein Worker-Durchlauf: erzwungen (wenn angefordert) oder normal."""
+    global _render_generation, _render_in_progress, _force_render_requested
+
+    with _render_cond:
+        forced = _force_render_requested
+        _force_render_requested = False
+        _render_in_progress = True
+
+    try:
+        try:
+            last_state_key = render_if_changed(None if forced else last_state_key)
+        except Exception as exc:
+            log.error(f"periodic_worker: {exc}", exc_info=True)
+    finally:
+        with _render_cond:
+            _render_in_progress = False
+            _render_generation += 1
+            _render_cond.notify_all()
+
+    return last_state_key
+
+
 def periodic_worker() -> None:
     last_state_key: str | None = None
 
     while True:
-        try:
-            last_state_key = render_if_changed(last_state_key)
-        except Exception as exc:
-            log.error(f"periodic_worker: {exc}", exc_info=True)
-
-        time.sleep(_get_background_poll_seconds())
+        last_state_key = _run_worker_cycle(last_state_key)
+        # Warten bis zum nächsten Poll oder bis ein Request den Worker weckt
+        _wake_event.wait(timeout=_get_background_poll_seconds())
+        _wake_event.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -613,10 +694,9 @@ def settings_page():
         write_env_settings(updates)
         apply_runtime_config(updates)
 
-        try:
-            render_image()
-        except Exception as exc:
-            log.error(f"settings render: {exc}", exc_info=True)
+        # Worker rendert mit der neuen Config; kurz warten, damit die
+        # Vorschau nach dem Redirect schon das neue Bild zeigt.
+        request_render(wait_seconds=15)
 
         return redirect(url_for("settings_page", saved=1))
 
@@ -630,12 +710,12 @@ def settings_page():
 
 @app.route("/refresh", methods=["GET", "POST"])
 def refresh():
-    try:
-        render_image()
-        return jsonify({"ok": True, "message": "refreshed"})
-    except Exception as exc:
-        log.error(f"refresh: {exc}", exc_info=True)
-        return jsonify({"ok": False, "error": str(exc)}), 500
+    completed = request_render(wait_seconds=20)
+    return jsonify({
+        "ok":      True,
+        "message": "refreshed" if completed else "queued",
+        "completed": completed,
+    })
 
 
 @app.route("/api/rescan-modules", methods=["POST"])
@@ -677,8 +757,8 @@ def webhook():
     try:
         payload = request.form.get("payload")
         log.info(f"Webhook: {(payload or '')[:300] or '(kein Payload)'}")
-        render_image()
-        return jsonify({"ok": True})
+        request_render()
+        return jsonify({"ok": True, "queued": True})
     except Exception as exc:
         log.error(f"webhook: {exc}", exc_info=True)
         return jsonify({"ok": False, "error": str(exc)}), 500

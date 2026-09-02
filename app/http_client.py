@@ -25,6 +25,11 @@ log = get_logger(__name__)
 # Globale HTTP-Session (wird von allen Modulen geteilt)
 # ---------------------------------------------------------------------------
 
+# Nach einem fehlgeschlagenen Fetch (Netzwerk, HTTP-Fehler, "nicht gefunden")
+# warten Datenquellen mindestens so lange, bevor sie es erneut versuchen.
+# Verhindert Fetch- und Re-Render-Schleifen im Poll-Takt bei Ausfällen.
+FETCH_RETRY_BACKOFF_SECONDS = 300
+
 HTTP_SESSION = requests.Session()
 _retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[502, 503, 504])
 HTTP_SESSION.mount("http://",  HTTPAdapter(max_retries=_retry))

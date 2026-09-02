@@ -17,7 +17,7 @@ from app.config import (
     DWD_STATION_OVERVIEW_URL,
 )
 from app.logger import get_logger
-from app.http_client import HTTP_SESSION
+from app.http_client import HTTP_SESSION, FETCH_RETRY_BACKOFF_SECONDS
 
 log = get_logger(__name__)
 
@@ -26,7 +26,7 @@ log = get_logger(__name__)
 # Cache
 # ---------------------------------------------------------------------------
 
-DWD_WEATHER_CACHE: dict = {"fetched_at": 0.0, "station_id": "", "timezone": "", "data": None}
+DWD_WEATHER_CACHE: dict = {"fetched_at": 0.0, "last_attempt_at": 0.0, "station_id": "", "timezone": "", "data": None}
 DWD_WEATHER_LOCK = threading.Lock()
 
 
@@ -423,6 +423,16 @@ def fetch_dwd_weather(force_refresh: bool = False) -> dict | None:
             and cache_age < cache_seconds
         ):
             return dict(DWD_WEATHER_CACHE["data"])
+        # Backoff nach Fehlschlag (nur wenn Station/TZ unverändert, sonst sofort neu)
+        if (
+            not force_refresh
+            and not station_changed
+            and not tz_changed
+            and now - DWD_WEATHER_CACHE["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS
+        ):
+            cached = DWD_WEATHER_CACHE.get("data")
+            return dict(cached) if isinstance(cached, dict) else None
+        DWD_WEATHER_CACHE["last_attempt_at"] = now
 
     try:
         url = DWD_STATION_OVERVIEW_URL.format(station_id=station_id)
@@ -436,7 +446,7 @@ def fetch_dwd_weather(force_refresh: bool = False) -> dict | None:
             DWD_WEATHER_CACHE["data"]       = dict(data) if data is not None else None
         return data
     except Exception as exc:
-        log.error(f"fetch_dwd_weather: {exc}", exc_info=True)
+        log.warning(f"fetch_dwd_weather: {exc} – nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
         with DWD_WEATHER_LOCK:
             cached = DWD_WEATHER_CACHE.get("data")
             return dict(cached) if isinstance(cached, dict) else None
@@ -445,7 +455,16 @@ def fetch_dwd_weather(force_refresh: bool = False) -> dict | None:
 def should_refresh_dwd_weather() -> bool:
     cfg = get_cfg()
     with DWD_WEATHER_LOCK:
-        cache_age       = time.time() - DWD_WEATHER_CACHE["fetched_at"]
+        now = time.time()
+        if now - DWD_WEATHER_CACHE["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS:
+            # Nach Fehlschlag: Station-/TZ-Wechsel erlaubt trotzdem sofortigen Refresh
+            station_id = get_setting("DWD_WEATHER_STATION_ID", "10532").strip() or "10532"
+            if (
+                DWD_WEATHER_CACHE["station_id"] == station_id
+                and DWD_WEATHER_CACHE["timezone"] == (cfg.timezone or "Europe/Berlin")
+            ):
+                return False
+        cache_age       = now - DWD_WEATHER_CACHE["fetched_at"]
         station_id      = get_setting("DWD_WEATHER_STATION_ID", "10532").strip() or "10532"
         cache_seconds   = get_int_setting("DWD_WEATHER_CACHE_SECONDS", DEFAULT_DWD_WEATHER_CACHE_SECONDS, 60, 86400)
         station_changed = DWD_WEATHER_CACHE["station_id"] != station_id

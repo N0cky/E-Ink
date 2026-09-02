@@ -20,7 +20,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.logger import get_logger
-from app.http_client import HTTP_SESSION
+from app.http_client import HTTP_SESSION, FETCH_RETRY_BACKOFF_SECONDS
 
 log = get_logger(__name__)
 
@@ -38,7 +38,7 @@ UV_UPDATE_DELAY_SECONDS = 10 * 60
 # Cache
 # ---------------------------------------------------------------------------
 
-_UV_CACHE: dict  = {"fetched_at": 0.0, "city": "", "data": None, "next_refresh_at": 0.0}
+_UV_CACHE: dict  = {"fetched_at": 0.0, "last_attempt_at": 0.0, "city": "", "data": None, "next_refresh_at": 0.0}
 _UV_LOCK  = threading.Lock()
 
 # Separater Cache nur für die Städteliste (für Autocomplete)
@@ -241,6 +241,13 @@ def fetch_dwd_uv(force_refresh: bool = False) -> dict | None:
                 and now - _UV_CACHE["fetched_at"] < DWD_UV_CACHE_SECONDS
                 and not (_UV_CACHE.get("next_refresh_at", 0.0) and now >= _UV_CACHE["next_refresh_at"] and _UV_CACHE["fetched_at"] < _UV_CACHE["next_refresh_at"])):
             return dict(cached)
+        # Backoff nach Fehlschlag oder "Stadt nicht gefunden"
+        if (not force_refresh
+                and _UV_CACHE["city"] == city
+                and now - _UV_CACHE["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS):
+            return dict(cached) if isinstance(cached, dict) else None
+        _UV_CACHE["last_attempt_at"] = now
+        _UV_CACHE["city"] = city
 
     try:
         response = HTTP_SESSION.get(DWD_UV_API_URL, timeout=20)
@@ -255,7 +262,8 @@ def fetch_dwd_uv(force_refresh: bool = False) -> dict | None:
         entry = _find_city_entry(content, city)
         if entry is None:
             sample = [e.get("city", "") for e in content[:8] if isinstance(e, dict)]
-            log.warning(f"DWD UV: Stadt '{city}' nicht gefunden. Verfügbare Einträge (Auszug): {sample}")
+            log.warning(f"DWD UV: Stadt '{city}' nicht gefunden. Verfügbare Einträge (Auszug): {sample} – "
+                        f"nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
             return None
 
         last_update_dt = _parse_uv_update_timestamp(payload.get("last_update") if isinstance(payload, dict) else None)
@@ -279,7 +287,7 @@ def fetch_dwd_uv(force_refresh: bool = False) -> dict | None:
         return data
 
     except Exception as exc:
-        log.error(f"fetch_dwd_uv: {exc}", exc_info=True)
+        log.warning(f"fetch_dwd_uv: {exc} – nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
         with _UV_LOCK:
             cached = _UV_CACHE["data"]
             return dict(cached) if isinstance(cached, dict) else None
@@ -294,6 +302,8 @@ def should_refresh_dwd_uv() -> bool:
     now = time.time()
     with _UV_LOCK:
         cached = _UV_CACHE
+        if cached["city"] == city and now - cached["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS:
+            return False
         if cached["data"] is None or cached["city"] != city:
             return True
         next_refresh_at = cached.get("next_refresh_at", 0.0)

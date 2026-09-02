@@ -30,8 +30,11 @@ RUN mkdir -p /output /logs /config \
 
 EXPOSE 8787
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+# start-period großzügig: das Initial-Render kann bei nicht erreichbarem Plex über 60 s dauern
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=3)"
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "--workers", "1", "--bind", "0.0.0.0:8787", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
+# 1 Worker (Render-Thread lebt im Prozess), 4 Threads (ESP32-Polls blockieren nicht hinter dem UI),
+# 120 s Timeout (langsame Requests killen nicht den Prozess samt Render-Thread)
+CMD ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "120", "--bind", "0.0.0.0:8787", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]

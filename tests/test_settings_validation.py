@@ -37,7 +37,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
-            patch("app.server.render_image") as render_image,
+            patch("app.server.request_render") as render_image,
         ):
             response = self.client.post("/settings", data=form_data)
 
@@ -59,7 +59,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
-            patch("app.server.render_image") as render_image,
+            patch("app.server.request_render") as render_image,
         ):
             response = self.client.post("/settings", data=form_data)
 
@@ -81,7 +81,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
             with (
                 patch("app.server.write_env_settings") as write_env,
                 patch("app.server.apply_runtime_config") as apply_cfg,
-                patch("app.server.render_image") as render_image,
+                patch("app.server.request_render") as render_image,
             ):
                 response = self.client.post("/settings", data=form_data, follow_redirects=False)
 
@@ -100,7 +100,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
-            patch("app.server.render_image") as render_image,
+            patch("app.server.request_render") as render_image,
         ):
             response = self.client.post("/settings", data=form_data)
 
@@ -121,7 +121,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
-            patch("app.server.render_image") as render_image,
+            patch("app.server.request_render") as render_image,
         ):
             response = self.client.post("/settings", data=form_data)
 

@@ -18,7 +18,7 @@ from app.config import (
     TAGESSCHAU_API_URL,
 )
 from app.logger import get_logger
-from app.http_client import HTTP_SESSION, download_image
+from app.http_client import HTTP_SESSION, download_image, FETCH_RETRY_BACKOFF_SECONDS
 
 log = get_logger(__name__)
 
@@ -34,7 +34,7 @@ MAX_IMAGE_CACHE_ENTRIES = 20
 # News-Cache
 # ---------------------------------------------------------------------------
 
-TAGESSCHAU_NEWS_CACHE: dict = {"fetched_at": 0.0, "items": []}
+TAGESSCHAU_NEWS_CACHE: dict = {"fetched_at": 0.0, "last_attempt_at": 0.0, "items": []}
 TAGESSCHAU_NEWS_LOCK = threading.Lock()
 
 
@@ -196,6 +196,10 @@ def fetch_tagesschau_news(force_refresh: bool = False) -> list[dict]:
         cache_age = now - TAGESSCHAU_NEWS_CACHE["fetched_at"]
         if not force_refresh and TAGESSCHAU_NEWS_CACHE["items"] and cache_age < cache_seconds:
             return list(TAGESSCHAU_NEWS_CACHE["items"])
+        # Backoff nach Fehlschlag: nicht im Poll-Takt gegen die API hämmern
+        if not force_refresh and now - TAGESSCHAU_NEWS_CACHE["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS:
+            return list(TAGESSCHAU_NEWS_CACHE["items"])
+        TAGESSCHAU_NEWS_CACHE["last_attempt_at"] = now
     try:
         response = HTTP_SESSION.get(TAGESSCHAU_API_URL, timeout=20)
         response.raise_for_status()
@@ -205,15 +209,18 @@ def fetch_tagesschau_news(force_refresh: bool = False) -> list[dict]:
             TAGESSCHAU_NEWS_CACHE["items"] = items
         return list(items)
     except Exception as exc:
-        log.error(f"fetch_tagesschau_news: {exc}", exc_info=True)
+        log.warning(f"fetch_tagesschau_news: {exc} – nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
         with TAGESSCHAU_NEWS_LOCK:
             return list(TAGESSCHAU_NEWS_CACHE["items"])
 
 
 def should_refresh_tagesschau_news() -> bool:
     cache_seconds = get_int_setting("TAGESSCHAU_IDLE_CACHE_SECONDS", 900, 60, 86400)
+    now = time.time()
     with TAGESSCHAU_NEWS_LOCK:
-        return time.time() - TAGESSCHAU_NEWS_CACHE["fetched_at"] >= cache_seconds
+        if now - TAGESSCHAU_NEWS_CACHE["last_attempt_at"] < FETCH_RETRY_BACKOFF_SECONDS:
+            return False
+        return now - TAGESSCHAU_NEWS_CACHE["fetched_at"] >= cache_seconds
 
 
 # ---------------------------------------------------------------------------
