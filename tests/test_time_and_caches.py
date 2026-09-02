@@ -17,7 +17,7 @@ from PIL import Image
 import app.config as config
 import app.http_client as http_client
 import app.server as server
-import app.steam as steam
+import modules.steam.steam as steam
 from modules.dwd_weather.renderer import format_day_label
 
 
@@ -106,7 +106,7 @@ class PlexWithoutConfigTest(unittest.TestCase):
         self.assertFalse(plex_module.is_enabled({"PLEX_MODULE_ENABLED": "false", "PLEX_BASE_URL": "http://p", "PLEX_TOKEN": "t"}))
 
     def test_unreachable_plex_logs_warning_once_not_error_per_tick(self) -> None:
-        import app.plex as plex
+        import modules.plex.plex as plex
         plex._last_error_logged_at = 0.0
         with (
             patch.object(plex, "plex_get", side_effect=RuntimeError("connection refused")),

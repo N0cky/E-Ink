@@ -386,17 +386,13 @@ input::placeholder { color: var(--muted); }
         <div class="status-panel">
             <div class="section-label" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px;">Laufzeit-Status</div>
             <div class="status-grid">
-                <div class="status-card"><div class="status-label">Rendergröße</div><div class="status-value">{{ runtime.render_size }}</div></div>
-                <div class="status-card {% if runtime.theme == 'Light' %}accent{% endif %}"><div class="status-label">Display-Theme</div><div class="status-value">{{ runtime.theme }}</div></div>
-                <div class="status-card"><div class="status-label">Rotation</div><div class="status-value">{{ runtime.rotation }}°</div></div>
-                <div class="status-card {% if runtime.plex_enabled == 'Aktiv' %}accent{% endif %}"><div class="status-label">Plex-Modul</div><div class="status-value">{{ runtime.plex_enabled }}</div></div>
-                <div class="status-card {% if runtime.steam_enabled == 'Aktiv' %}accent{% endif %}"><div class="status-label">Steam-Modul</div><div class="status-value">{{ runtime.steam_enabled }}</div></div>
-                <div class="status-card"><div class="status-label">Medientypen</div><div class="status-value">{{ runtime.priority }}</div></div>
-                <div class="status-card"><div class="status-label">Steam-Profil</div><div class="status-value">{{ runtime.steam_profile }}</div></div>
-                <div class="status-card"><div class="status-label">Idle-Module</div><div class="status-value">{{ runtime.idle_modules }}</div></div>
-                <div class="status-card"><div class="status-label">Idle-Rotation</div><div class="status-value">{{ runtime.idle_rotation }}</div></div>
-                <div class="status-card"><div class="status-label">Nachtmodus</div><div class="status-value">{{ runtime.night_mode }}</div></div>
-                <div class="status-card"><div class="status-label">DWD-Station</div><div class="status-value">{{ runtime.dwd_station }}</div></div>
+                {# Framework-Karten zuerst, dann jedes Modul mit seinem get_runtime_summary() #}
+                {% for card in runtime_cards %}
+                <div class="status-card {% if card.accent %}accent{% endif %}">
+                    <div class="status-label">{{ card.label }}</div>
+                    <div class="status-value">{{ card.value }}</div>
+                </div>
+                {% endfor %}
             </div>
 
             {# Geladene Module #}

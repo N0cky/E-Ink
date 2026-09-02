@@ -169,16 +169,32 @@ title = get_setting("EXAMPLE_TITLE", "Standardtitel")
 
 ## Render-Services
 
-Fuer Renderer und modulnahe Helfer gibt es Service-Dataclasses:
+`ModuleRenderServices` (in `app/module_services.py`) buendelt das, was jeder Renderer braucht:
+`render_width`, `render_height`, `display_theme` und `load_font`. Bewusst nicht mehr:
+Module holen sich ihre eigenen Datenquellen selbst aus ihrem Paket.
 
-- `ModuleFetchServices`
-- `ModuleRenderServices`
+```python
+from app.module_services import ModuleRenderServices
 
-Definiert in:
+def render(self, env, content):
+    from .renderer import render_example
+    return render_example(ModuleRenderServices.from_runtime(), content)
+```
 
-- [module_services.py](/C:/Users/tobia/Documents/PlexImageE-Ink/app/module_services.py)
+Gemeinsame Zeichen-Helfer fuer alle Module:
 
-Damit lassen sich gemeinsame Framework-Funktionen sauber an Renderer uebergeben, ohne alte Idle-Kompatibilitaetsschichten.
+- `app/text_rendering.py`: `wrap_text`, `fit_wrapped_text`, `fit_optional_text_block`, `draw_lines`
+- `app/image_rendering.py`: `resize_to_fit`, `fit_crop`, `create_blurred_cover_background`,
+  `create_centered_cover_canvas`, `create_light_cover_canvas`, `create_rounded_thumbnail`,
+  `draw_bottom_gradient`, `convert_to_spectra6`
+
+Alles Modul-spezifische (Plex-Overlays, Tagesschau-Karten, Steam-Layout) liegt im jeweiligen Modulordner.
+
+## Laufzeit-Status
+
+`get_runtime_summary(self, env)` liefert `dict[str, str]` mit **menschenlesbaren Labels als Keys**,
+z. B. `{"DWD-Station": "Giessen", "DWD-Cache": "900s"}`. Das Framework rendert daraus automatisch
+Status-Karten auf der Settings-Seite und loggt sie beim Start. Der Wert `"Aktiv"` wird hervorgehoben.
 
 
 ## Optionale Hooks
@@ -200,7 +216,8 @@ Rueckgabe: Liste von Fehlermeldungen.
 
 ### `get_runtime_summary(self, env)`
 
-Zusatzinfos fuer die Runtime-Karten in den Settings.
+Status-Karten fuer die Settings-Seite und das Startlog. Rueckgabe `dict[str, str]`
+mit lesbaren Labels als Keys (siehe Abschnitt "Laufzeit-Status").
 
 ### `get_field_options(self, field_name, env)`
 

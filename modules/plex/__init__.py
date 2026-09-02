@@ -187,7 +187,7 @@ class PlexModule(PlexInkModule):
         Rückgabe: Session-Dict wenn etwas abgespielt wird, sonst None.
         Kein Artwork-Download – das passiert erst in render().
         """
-        from app.plex import get_active_session
+        from .plex import get_active_session
         try:
             return get_active_session()
         except Exception as exc:
@@ -199,15 +199,14 @@ class PlexModule(PlexInkModule):
         Lädt Artwork und rendert das Plex-Wiedergabebild.
         Kein Artwork verfügbar → minimales Fallback-Bild mit Metadaten.
         """
-        from app.plex import download_session_artwork
-        from app.image_rendering import (
-            create_centered_cover_canvas,
-            create_light_cover_canvas,
+        from .plex import download_session_artwork
+        from .renderer import (
             draw_video_overlay,
             draw_video_overlay_light,
             draw_music_overlay,
             draw_music_overlay_light,
         )
+        from app.image_rendering import create_centered_cover_canvas, create_light_cover_canvas
         from app.config import get_cfg
 
         session = content
@@ -251,12 +250,14 @@ class PlexModule(PlexInkModule):
         return f"{rating_key}:{player_state}"
 
     def get_runtime_summary(self, env: dict[str, str]) -> dict[str, str]:
-        from app.config import get_bool_setting, get_setting, parse_session_priority
+        from app.config import get_bool_setting, get_setting
+        from .plex import parse_session_priority
 
         session_priority = parse_session_priority(get_setting("SESSION_PRIORITY", "movie,episode,track"))
+        enabled = get_bool_setting("PLEX_MODULE_ENABLED", True)
         return {
-            "plex_enabled": "Aktiv" if get_bool_setting("PLEX_MODULE_ENABLED", True) else "Deaktiviert",
-            "priority": " > ".join(session_priority) if session_priority else "Keine",
+            "Plex-Modul":  ("Aktiv" if self.is_configured(env) else "Nicht konfiguriert") if enabled else "Deaktiviert",
+            "Medientypen": " > ".join(session_priority) if session_priority else "Keine",
         }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:

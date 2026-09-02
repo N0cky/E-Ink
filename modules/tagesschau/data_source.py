@@ -11,12 +11,7 @@ from datetime import datetime
 
 from PIL import Image
 
-from app.config import (
-    get_int_setting,
-    DEFAULT_TAGESSCHAU_IDLE_COUNT,
-    DEFAULT_TAGESSCHAU_IMAGE_CACHE_SECONDS,
-    TAGESSCHAU_API_URL,
-)
+from app.config import get_int_setting
 from app.logger import get_logger
 from app.http_client import HTTP_SESSION, download_image, FETCH_RETRY_BACKOFF_SECONDS
 
@@ -27,7 +22,10 @@ log = get_logger(__name__)
 # Cache-Konstante
 # ---------------------------------------------------------------------------
 
-MAX_IMAGE_CACHE_ENTRIES = 20
+TAGESSCHAU_API_URL                     = "https://www.tagesschau.de/api2u/homepage/"
+DEFAULT_TAGESSCHAU_IDLE_COUNT          = 3
+DEFAULT_TAGESSCHAU_IMAGE_CACHE_SECONDS = 1800
+MAX_IMAGE_CACHE_ENTRIES                = 20
 
 
 # ---------------------------------------------------------------------------

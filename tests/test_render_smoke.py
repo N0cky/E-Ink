@@ -188,7 +188,7 @@ class _SmokeBase(unittest.TestCase):
         from modules.plex import module
         session = {"mediaCategory": "video", "type": "movie", "title": "Ohne Cover",
                    "duration": "1000", "viewOffset": "0", "playerState": "playing", "user": "t"}
-        with patch("app.plex.download_session_artwork", return_value=None):
+        with patch("modules.plex.plex.download_session_artwork", return_value=None):
             self._assert_image(module.render(self.env, session))
 
     def test_steam(self) -> None:

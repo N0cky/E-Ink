@@ -8,19 +8,17 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from app.config import (
-    local_tz,
-    get_cfg,
-    get_int_setting,
-    get_setting,
-    DEFAULT_DWD_WEATHER_CACHE_SECONDS,
-    DWD_STATION_NAMES,
-    DWD_STATION_OVERVIEW_URL,
-)
+from app.config import get_cfg, get_int_setting, get_setting, local_tz
 from app.logger import get_logger
 from app.http_client import HTTP_SESSION, FETCH_RETRY_BACKOFF_SECONDS
 
 log = get_logger(__name__)
+
+DWD_STATION_OVERVIEW_URL          = "https://app-prod-ws.warnwetter.de/v30/stationOverviewExtended?stationIds={station_id}"
+DEFAULT_DWD_WEATHER_CACHE_SECONDS = 900
+DWD_STATION_NAMES = {
+    "10532": "Gießen",
+}
 
 
 # ---------------------------------------------------------------------------

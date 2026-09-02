@@ -93,7 +93,7 @@ class SteamModule(PlexInkModule):
         return env.get("STEAM_MODULE_ENABLED", "false").strip().lower() == "true"
 
     def fetch_content(self, env: dict[str, str]) -> dict | None:
-        from app.steam import get_active_game
+        from .steam import get_active_game
 
         try:
             return get_active_game()
@@ -102,7 +102,7 @@ class SteamModule(PlexInkModule):
             return None
 
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
-        from app.steam import download_steam_artwork
+        from .steam import download_steam_artwork
         from .renderer import render_steam_dark, render_steam_light
 
         cfg = get_cfg()
@@ -128,8 +128,8 @@ class SteamModule(PlexInkModule):
     def get_runtime_summary(self, env: dict[str, str]) -> dict[str, str]:
         profile_value = get_setting("STEAM_PROFILE", "").strip()
         return {
-            "steam_enabled": "Aktiv" if get_bool_setting("STEAM_MODULE_ENABLED", False) else "Deaktiviert",
-            "steam_profile": profile_value or "Nicht gesetzt",
+            "Steam-Modul":  "Aktiv" if get_bool_setting("STEAM_MODULE_ENABLED", False) else "Deaktiviert",
+            "Steam-Profil": profile_value or "Nicht gesetzt",
         }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
@@ -150,7 +150,7 @@ class SteamModule(PlexInkModule):
         }
 
     def validate_settings(self, updates: dict[str, str], env: dict[str, str]) -> list[str]:
-        from app.steam import parse_steam_profile_input
+        from .steam import parse_steam_profile_input
 
         errors: list[str] = []
         enabled = env.get("STEAM_MODULE_ENABLED", "false").strip().lower() == "true"

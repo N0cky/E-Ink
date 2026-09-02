@@ -6,7 +6,7 @@ Rotation, Theme, Ausgabeformat, Idle-Verwaltung, Zeitzone).
 Modul-spezifische Einstellungen (Plex, DWD, Tagesschau …) sind in den
 jeweiligen modules/*/SETTINGS_FIELDS definiert.
 
-WICHTIG: Dieses Modul darf NICHT von app.plex oder app.image_rendering
+WICHTIG: Dieses Modul darf NICHT von modules/* oder app.image_rendering
 importieren – es steht am Anfang der Dependency-Chain.
 """
 
@@ -17,8 +17,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-
-import re
 
 from dotenv import dotenv_values
 from PIL import ImageFont
@@ -60,115 +58,10 @@ STATE_PATH         = DATA_DIR / "state.txt"
 # Anwendungskonstanten
 # ---------------------------------------------------------------------------
 
-DEFAULT_SESSION_PRIORITY              = ["movie", "episode", "track"]
-TAGESSCHAU_API_URL                    = "https://www.tagesschau.de/api2u/homepage/"
-DWD_STATION_OVERVIEW_URL              = "https://app-prod-ws.warnwetter.de/v30/stationOverviewExtended?stationIds={station_id}"
-DEFAULT_TAGESSCHAU_IDLE_COUNT         = 3
-DEFAULT_TAGESSCHAU_IDLE_CACHE_SECONDS = 900
-DEFAULT_TAGESSCHAU_IMAGE_CACHE_SECONDS = 1800
-DEFAULT_DWD_WEATHER_CACHE_SECONDS     = 900
-
-DWD_STATION_NAMES = {
-    "10532": "Gießen",
-}
-
-PLAYBACK_LABELS = {
-    "playing":   "Now Playing",
-    "paused":    "Pausiert",
-    "buffering": "Lädt",
-    "stopped":   "Gestoppt",
-}
-
-PLAYER_STATE_PRIORITY = {
-    "playing":   0,
-    "buffering": 1,
-    "paused":    2,
-    "stopped":   3,
-    "unknown":   4,
-}
-
-VIDEO_SESSION_FIELDS = {
-    "mediaCategory":    "video",
-    "type":             "video",
-    "title":            "Unbekannt",
-    "grandparentTitle": "",
-    "parentTitle":      "",
-    "parentIndex":      "",
-    "index":            "",
-    "year":             "",
-    "thumb":            "",
-    "art":              "",
-    "parentThumb":      "",
-    "grandparentThumb": "",
-    "parentArt":        "",
-    "grandparentArt":   "",
-    "ratingKey":        "",
-    "duration":         "",
-    "viewOffset":       "",
-}
-
-TRACK_SESSION_FIELDS = {
-    "mediaCategory":    "music",
-    "type":             "track",
-    "title":            "Unbekannt",
-    "grandparentTitle": "",
-    "parentTitle":      "",
-    "parentIndex":      "",
-    "index":            "",
-    "year":             "",
-    "thumb":            "",
-    "art":              "",
-    "ratingKey":        "",
-    "duration":         "",
-    "viewOffset":       "",
-}
-
-ARTWORK_FIELD_ORDERS = {
-    "movie": {
-        "movie_thumb": ["thumb", "art"],
-        "movie_art":   ["art", "thumb"],
-        "auto":        ["thumb", "art"],
-    },
-    "episode": {
-        "series_thumb":  ["grandparentThumb", "parentThumb", "thumb", "grandparentArt", "parentArt", "art"],
-        "series_art":    ["grandparentArt", "parentArt", "art", "grandparentThumb", "parentThumb", "thumb"],
-        "season_thumb":  ["parentThumb", "grandparentThumb", "thumb", "parentArt", "grandparentArt", "art"],
-        "season_art":    ["parentArt", "grandparentArt", "art", "parentThumb", "grandparentThumb", "thumb"],
-        "episode_thumb": ["thumb", "grandparentThumb", "parentThumb", "art", "grandparentArt", "parentArt"],
-        "episode_art":   ["art", "thumb", "grandparentArt", "parentArt", "grandparentThumb", "parentThumb"],
-        "auto":          ["grandparentThumb", "parentThumb", "thumb", "grandparentArt", "parentArt", "art"],
-    },
-    "default": {
-        "auto": ["thumb", "art"],
-    },
-}
-
-SESSION_PRIORITY_ALIASES = {
-    "film": "movie", "filme": "movie", "movie": "movie", "movies": "movie",
-    "serie": "episode", "serien": "episode", "series": "episode", "episode": "episode", "episodes": "episode",
-    "musik": "track", "music": "track", "track": "track", "tracks": "track",
-}
-
 DISPLAY_ROTATION_ALIASES = {
     "0": 0, "90": 90, "180": 180, "270": 270,
     "portrait-right": 90, "portrait-left": 270,
     "landscape": 0, "landscape-flipped": 180,
-}
-
-EPISODE_ARTWORK_SOURCE_ALIASES = {
-    "auto": "auto",
-    "episode_thumb": "episode_thumb", "thumbnail": "episode_thumb", "thumb": "episode_thumb",
-    "episode_art": "episode_art", "art": "episode_art",
-    "series_thumb": "series_thumb", "series_cover": "series_thumb", "show_thumb": "series_thumb",
-    "series_art": "series_art", "show_art": "series_art",
-    "season_thumb": "season_thumb", "season_cover": "season_thumb",
-    "season_art": "season_art",
-}
-
-MOVIE_ARTWORK_SOURCE_ALIASES = {
-    "auto": "auto",
-    "movie_thumb": "movie_thumb", "poster": "movie_thumb", "cover": "movie_thumb", "thumb": "movie_thumb",
-    "movie_art": "movie_art", "background": "movie_art", "backdrop": "movie_art", "art": "movie_art",
 }
 
 # ---------------------------------------------------------------------------
@@ -420,36 +313,8 @@ def parse_idle_module_ids(raw_value: str) -> tuple[str, ...]:
     return tuple(parsed)
 
 
-def parse_session_priority(raw_value: str) -> tuple[str, ...]:
-    if not raw_value.strip():
-        return tuple(DEFAULT_SESSION_PRIORITY)
-    parsed = []
-    for item in raw_value.split(","):
-        normalized = SESSION_PRIORITY_ALIASES.get(item.strip().lower())
-        if normalized and normalized not in parsed:
-            parsed.append(normalized)
-    for fallback in DEFAULT_SESSION_PRIORITY:
-        if fallback not in parsed:
-            parsed.append(fallback)
-    return tuple(parsed)
-
-
 def parse_display_rotation(raw_value: str) -> int:
     return DISPLAY_ROTATION_ALIASES.get(raw_value.strip().lower(), 0)
-
-
-def parse_episode_artwork_source(raw_value: str) -> str:
-    return EPISODE_ARTWORK_SOURCE_ALIASES.get(raw_value.strip().lower(), "series_thumb")
-
-
-def parse_movie_artwork_source(raw_value: str) -> str:
-    return MOVIE_ARTWORK_SOURCE_ALIASES.get(raw_value.strip().lower(), "movie_thumb")
-
-
-def parse_allowed_users(raw_value: str) -> frozenset[str]:
-    if not raw_value.strip():
-        return frozenset()
-    return frozenset(u.strip().lower() for u in raw_value.split(",") if u.strip())
 
 
 def get_effective_render_size(base_w: int, base_h: int, rotation: int) -> tuple[int, int]:
@@ -808,7 +673,7 @@ def get_settings_runtime_summary() -> dict[str, str]:
     cfg = _cfg
     return {
         "render_size":         f"{cfg.render_width}x{cfg.render_height}",
-        "rotation":            str(cfg.display_rotation),
+        "rotation":            f"{cfg.display_rotation}°",
         "theme":               "Light" if cfg.display_theme == "light" else "Dark",
         "output_format":       "BMP (Spectra 6)" if cfg.output_format == "bmp" else "PNG",
         "idle_modules":        ", ".join(cfg.idle_module_ids) if cfg.idle_module_ids else "Keine",

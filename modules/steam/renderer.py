@@ -3,7 +3,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from app.config import load_font, now_local
-from app.idle_news_rendering import draw_lines, fit_wrapped_text
+from app.text_rendering import draw_lines, fit_wrapped_text
 from app.image_rendering import (
     create_centered_cover_canvas,
     create_light_cover_canvas,

@@ -15,7 +15,7 @@ from typing import Any
 from PIL import Image
 
 from app.module_base import PlexInkModule
-from app.module_services import ModuleFetchServices, ModuleRenderServices
+from app.module_services import ModuleRenderServices
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -214,50 +214,16 @@ class DWDWeatherModule(PlexInkModule):
 
     def fetch_content(self, env: dict[str, str]) -> dict | None:
         from .renderer import fetch_dwd_weather_content, has_dwd_weather_content
-        from .dwd import fetch_dwd_weather, should_refresh_dwd_weather
-        from modules.tagesschau.data_source import (
-            fetch_tagesschau_news,
-            should_refresh_tagesschau_news,
-        )
-        services = ModuleFetchServices(
-            fetch_tagesschau_news=fetch_tagesschau_news,
-            should_refresh_tagesschau_news=should_refresh_tagesschau_news,
-            fetch_dwd_weather=fetch_dwd_weather,
-            should_refresh_dwd_weather=should_refresh_dwd_weather,
-        )
-        content = fetch_dwd_weather_content(services)
+        content = fetch_dwd_weather_content()
         return content if has_dwd_weather_content(content) else None
 
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
         from .renderer import render_dwd_weather_module
-        from app.config import get_cfg, load_font
-        from modules.tagesschau.data_source import fetch_tagesschau_image
-        from app.image_rendering import create_rounded_thumbnail
-        cfg = get_cfg()
-        services = ModuleRenderServices(
-            render_width=cfg.render_width,
-            render_height=cfg.render_height,
-            load_font=load_font,
-            fetch_tagesschau_image=fetch_tagesschau_image,
-            create_rounded_thumbnail=create_rounded_thumbnail,
-            display_theme=cfg.display_theme,
-        )
-        return render_dwd_weather_module(services, content)
+        return render_dwd_weather_module(ModuleRenderServices.from_runtime(), content)
 
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .renderer import should_refresh_dwd_weather_module
-        from .dwd import fetch_dwd_weather, should_refresh_dwd_weather
-        from modules.tagesschau.data_source import (
-            fetch_tagesschau_news,
-            should_refresh_tagesschau_news,
-        )
-        services = ModuleFetchServices(
-            fetch_tagesschau_news=fetch_tagesschau_news,
-            should_refresh_tagesschau_news=should_refresh_tagesschau_news,
-            fetch_dwd_weather=fetch_dwd_weather,
-            should_refresh_dwd_weather=should_refresh_dwd_weather,
-        )
-        return should_refresh_dwd_weather_module(services)
+        return should_refresh_dwd_weather_module()
 
     def get_state_key(self, content: Any) -> str:
         # Eindeutig über Station-ID; should_refresh() löst den Neu-Render aus
@@ -282,9 +248,9 @@ class DWDWeatherModule(PlexInkModule):
 
         station_id = get_setting("DWD_WEATHER_STATION_ID", "10532").strip() or "10532"
         return {
-            "dwd_station": resolve_dwd_station_name(station_id),
-            "dwd_cache": f"{get_int_setting('DWD_WEATHER_CACHE_SECONDS', 900, 60, 86400)}s",
-            "dwd_hourly_interval": f"{get_int_setting('DWD_HOURLY_INTERVAL_HOURS', 2, 1, 4)}h",
+            "DWD-Station":  resolve_dwd_station_name(station_id),
+            "DWD-Cache":    f"{get_int_setting('DWD_WEATHER_CACHE_SECONDS', 900, 60, 86400)}s",
+            "Stundenraster": f"{get_int_setting('DWD_HOURLY_INTERVAL_HOURS', 2, 1, 4)}h",
         }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:

@@ -161,17 +161,8 @@ class GalleryModule(PlexInkModule):
 
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
         from .renderer import render_gallery_image
-        from app.config import get_cfg, load_font
 
-        cfg = get_cfg()
-        services = ModuleRenderServices(
-            render_width=cfg.render_width,
-            render_height=cfg.render_height,
-            load_font=load_font,
-            fetch_tagesschau_image=lambda _url: None,
-            create_rounded_thumbnail=lambda img, _w, _h, _r: img,
-            display_theme=cfg.display_theme,
-        )
+        services = ModuleRenderServices.from_runtime()
         fit_mode = env.get("GALLERY_FIT_MODE", "fit_blur_bg").strip().lower()
         overlay_mode = env.get("GALLERY_OVERLAY_MODE", "none").strip().lower()
         return render_gallery_image(services, content, fit_mode, overlay_mode)
@@ -189,14 +180,13 @@ class GalleryModule(PlexInkModule):
 
         paths = parse_gallery_paths(env.get("GALLERY_PATHS", ""))
         return {
-            "gallery_paths": f"{len(paths)} Ordner" if paths else "Keine",
-            "gallery_mode": env.get("GALLERY_FIT_MODE", "fit_blur_bg"),
-            "gallery_interval": (
+            "Gallery-Ordner":   f"{len(paths)} Ordner" if paths else "Keine",
+            "Gallery-Modus":    env.get("GALLERY_FIT_MODE", "fit_blur_bg"),
+            "Gallery-Intervall": (
                 "Idle-Rotation"
                 if env.get("GALLERY_INTERVAL_MODE", "idle_rotation") != "custom"
                 else f"{env.get('GALLERY_INTERVAL_SECONDS', '300')}s"
             ),
-            "gallery_recent_avoidance": env.get("GALLERY_AVOID_RECENT_COUNT", "5"),
         }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import requests
 
-from app.steam import (
+from modules.steam.steam import (
     _build_store_asset_path,
     _download_steam_candidate,
     extract_active_game,
@@ -99,7 +99,7 @@ class SteamHelpersTest(unittest.TestCase):
                 ]
             }
         }
-        with patch("app.steam._steam_api_get", return_value=payload):
+        with patch("modules.steam.steam._steam_api_get", return_value=payload):
             urls = get_store_item_asset_urls("730")
 
         self.assertGreaterEqual(len(urls), 2)
@@ -114,7 +114,7 @@ class SteamHelpersTest(unittest.TestCase):
 
     def test_download_steam_candidate_treats_retry_error_as_fallback(self) -> None:
         retry_error = requests.exceptions.RetryError("too many 503 error responses")
-        with patch("app.steam.HTTP_SESSION.get", side_effect=retry_error):
+        with patch("modules.steam.steam.HTTP_SESSION.get", side_effect=retry_error):
             image = _download_steam_candidate("https://example.invalid/image.jpg")
 
         self.assertIsNone(image)

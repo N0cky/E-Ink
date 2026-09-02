@@ -569,15 +569,42 @@ def _all_fields_from_sections(sections: list[dict]) -> list[dict]:
     return fields
 
 
-def _build_runtime_summary() -> dict[str, str]:
+_FRAMEWORK_RUNTIME_CARDS = (
+    ("render_size",   "Rendergröße"),
+    ("theme",         "Display-Theme"),
+    ("rotation",      "Rotation"),
+    ("output_format", "Ausgabeformat"),
+    ("idle_modules",  "Idle-Module"),
+    ("idle_rotation", "Idle-Rotation"),
+    ("night_mode",    "Nachtmodus"),
+)
+
+
+def _build_runtime_cards() -> list[dict]:
+    """
+    Laufzeit-Status-Karten für die Settings-Seite: Framework-Werte zuerst,
+    dann jedes Modul mit dem, was es in get_runtime_summary() liefert
+    (Label → Wert). Ein neues Modul bekommt seine Karten automatisch.
+    """
     env = get_settings_values()
-    summary = dict(get_settings_runtime_summary())
+    framework = get_settings_runtime_summary()
+    cards: list[dict] = []
+    for key, label in _FRAMEWORK_RUNTIME_CARDS:
+        value = framework.get(key, "")
+        cards.append({
+            "label":  label,
+            "value":  value,
+            "accent": key == "theme" and value == "Light",
+        })
     for mod in _registry.get_modules():
         try:
-            summary.update(mod.get_runtime_summary(env))
+            summary = mod.get_runtime_summary(env) or {}
         except Exception as exc:
             log.warning(f"runtime_summary [{mod.MODULE_ID}]: {exc}")
-    return summary
+            continue
+        for label, value in summary.items():
+            cards.append({"label": str(label), "value": str(value), "accent": str(value) == "Aktiv"})
+    return cards
 
 
 def _build_module_health() -> dict[str, dict]:
@@ -707,7 +734,7 @@ def settings_page():
     base_kwargs = dict(
         sections=sections,
         values=get_settings_values(),
-        runtime=_build_runtime_summary(),
+        runtime_cards=_build_runtime_cards(),
         modules=_registry.get_module_info_list(),
     )
 
@@ -719,7 +746,10 @@ def settings_page():
             return render_template("settings.html", **base_kwargs, errors=errors, saved=False)
 
         write_env_settings(updates)
-        apply_runtime_config(updates)
+        # Unter dem Render-Lock umschalten: ein laufender Render sieht nie
+        # gemischte alte/neue Werte (z. B. alte Breite im Canvas, neue im Overlay).
+        with _render_lock:
+            apply_runtime_config(updates)
 
         # Worker rendert mit der neuen Config; kurz warten, damit die
         # Vorschau nach dem Redirect schon das neue Bild zeigt.
@@ -899,15 +929,15 @@ def log_startup_config() -> None:
             if cfg.night_mode_enabled else "deaktiviert"
         ),
     )
+    # Modul-Status generisch: jedes Modul beschreibt sich selbst
     env = get_settings_values()
-    log.info(f"PLEX_BASE_URL        = {env.get('PLEX_BASE_URL', '')}")
-    log.info(f"PLEX_TOKEN gesetzt   = {bool(env.get('PLEX_TOKEN', ''))}")
-    log.info(f"PLEX_MODULE_ENABLED  = {env.get('PLEX_MODULE_ENABLED', 'true')}")
-    log.info(f"SESSION_PRIORITY     = {env.get('SESSION_PRIORITY', 'movie,episode,track')}")
-    log.info(f"STEAM_PROFILE        = {env.get('STEAM_PROFILE', '')}")
-    log.info(f"STEAM_API_KEY gesetzt= {bool(env.get('STEAM_API_KEY', ''))}")
-    log.info(f"STEAM_MODULE_ENABLED = {env.get('STEAM_MODULE_ENABLED', 'true')}")
-    log.info(f"DWD_STATION          = {env.get('DWD_WEATHER_STATION_ID', '10532')}")
+    for mod in _registry.get_modules():
+        try:
+            summary = mod.get_runtime_summary(env) or {}
+        except Exception as exc:
+            summary = {"Fehler": str(exc)}
+        parts = ", ".join(f"{k}: {v}" for k, v in summary.items())
+        log.info(f"[{mod.MODULE_ID}] {'aktiv' if mod.is_enabled(env) else 'inaktiv'} – {parts}")
 
 
 def ensure_runtime_started() -> None:

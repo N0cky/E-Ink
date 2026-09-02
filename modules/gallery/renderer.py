@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from app.idle_news_rendering import draw_lines, fit_wrapped_text
+from app.text_rendering import draw_lines, fit_wrapped_text
 from app.image_rendering import create_blurred_cover_background, fit_crop, resize_to_fit
 from app.module_services import ModuleRenderServices
 

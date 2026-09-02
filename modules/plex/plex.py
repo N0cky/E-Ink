@@ -9,22 +9,137 @@ import xml.etree.ElementTree as ET
 import requests
 from PIL import Image
 
-from app.config import (
-    get_csv_setting,
-    get_setting,
-    parse_episode_artwork_source,
-    parse_movie_artwork_source,
-    parse_session_priority,
-    ARTWORK_FIELD_ORDERS,
-    PLAYBACK_LABELS,
-    PLAYER_STATE_PRIORITY,
-    VIDEO_SESSION_FIELDS,
-    TRACK_SESSION_FIELDS,
-)
+from app.config import get_csv_setting, get_setting
 from app.http_client import HTTP_SESSION, download_image, download_image_cached
 from app.logger import get_logger
 
 log = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Konstanten (Session-Felder, Artwork-Reihenfolgen, Aliasse)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SESSION_PRIORITY              = ["movie", "episode", "track"]
+
+PLAYBACK_LABELS = {
+    "playing":   "Now Playing",
+    "paused":    "Pausiert",
+    "buffering": "Lädt",
+    "stopped":   "Gestoppt",
+}
+
+PLAYER_STATE_PRIORITY = {
+    "playing":   0,
+    "buffering": 1,
+    "paused":    2,
+    "stopped":   3,
+    "unknown":   4,
+}
+
+VIDEO_SESSION_FIELDS = {
+    "mediaCategory":    "video",
+    "type":             "video",
+    "title":            "Unbekannt",
+    "grandparentTitle": "",
+    "parentTitle":      "",
+    "parentIndex":      "",
+    "index":            "",
+    "year":             "",
+    "thumb":            "",
+    "art":              "",
+    "parentThumb":      "",
+    "grandparentThumb": "",
+    "parentArt":        "",
+    "grandparentArt":   "",
+    "ratingKey":        "",
+    "duration":         "",
+    "viewOffset":       "",
+}
+
+TRACK_SESSION_FIELDS = {
+    "mediaCategory":    "music",
+    "type":             "track",
+    "title":            "Unbekannt",
+    "grandparentTitle": "",
+    "parentTitle":      "",
+    "parentIndex":      "",
+    "index":            "",
+    "year":             "",
+    "thumb":            "",
+    "art":              "",
+    "ratingKey":        "",
+    "duration":         "",
+    "viewOffset":       "",
+}
+
+ARTWORK_FIELD_ORDERS = {
+    "movie": {
+        "movie_thumb": ["thumb", "art"],
+        "movie_art":   ["art", "thumb"],
+        "auto":        ["thumb", "art"],
+    },
+    "episode": {
+        "series_thumb":  ["grandparentThumb", "parentThumb", "thumb", "grandparentArt", "parentArt", "art"],
+        "series_art":    ["grandparentArt", "parentArt", "art", "grandparentThumb", "parentThumb", "thumb"],
+        "season_thumb":  ["parentThumb", "grandparentThumb", "thumb", "parentArt", "grandparentArt", "art"],
+        "season_art":    ["parentArt", "grandparentArt", "art", "parentThumb", "grandparentThumb", "thumb"],
+        "episode_thumb": ["thumb", "grandparentThumb", "parentThumb", "art", "grandparentArt", "parentArt"],
+        "episode_art":   ["art", "thumb", "grandparentArt", "parentArt", "grandparentThumb", "parentThumb"],
+        "auto":          ["grandparentThumb", "parentThumb", "thumb", "grandparentArt", "parentArt", "art"],
+    },
+    "default": {
+        "auto": ["thumb", "art"],
+    },
+}
+
+SESSION_PRIORITY_ALIASES = {
+    "film": "movie", "filme": "movie", "movie": "movie", "movies": "movie",
+    "serie": "episode", "serien": "episode", "series": "episode", "episode": "episode", "episodes": "episode",
+    "musik": "track", "music": "track", "track": "track", "tracks": "track",
+}
+
+EPISODE_ARTWORK_SOURCE_ALIASES = {
+    "auto": "auto",
+    "episode_thumb": "episode_thumb", "thumbnail": "episode_thumb", "thumb": "episode_thumb",
+    "episode_art": "episode_art", "art": "episode_art",
+    "series_thumb": "series_thumb", "series_cover": "series_thumb", "show_thumb": "series_thumb",
+    "series_art": "series_art", "show_art": "series_art",
+    "season_thumb": "season_thumb", "season_cover": "season_thumb",
+    "season_art": "season_art",
+}
+
+MOVIE_ARTWORK_SOURCE_ALIASES = {
+    "auto": "auto",
+    "movie_thumb": "movie_thumb", "poster": "movie_thumb", "cover": "movie_thumb", "thumb": "movie_thumb",
+    "movie_art": "movie_art", "background": "movie_art", "backdrop": "movie_art", "art": "movie_art",
+}
+
+
+# ---------------------------------------------------------------------------
+# Settings-Parser
+# ---------------------------------------------------------------------------
+
+def parse_session_priority(raw_value: str) -> tuple[str, ...]:
+    if not raw_value.strip():
+        return tuple(DEFAULT_SESSION_PRIORITY)
+    parsed = []
+    for item in raw_value.split(","):
+        normalized = SESSION_PRIORITY_ALIASES.get(item.strip().lower())
+        if normalized and normalized not in parsed:
+            parsed.append(normalized)
+    for fallback in DEFAULT_SESSION_PRIORITY:
+        if fallback not in parsed:
+            parsed.append(fallback)
+    return tuple(parsed)
+
+
+def parse_episode_artwork_source(raw_value: str) -> str:
+    return EPISODE_ARTWORK_SOURCE_ALIASES.get(raw_value.strip().lower(), "series_thumb")
+
+
+def parse_movie_artwork_source(raw_value: str) -> str:
+    return MOVIE_ARTWORK_SOURCE_ALIASES.get(raw_value.strip().lower(), "movie_thumb")
 
 
 # ---------------------------------------------------------------------------

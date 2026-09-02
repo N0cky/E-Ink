@@ -9,8 +9,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from app.config import format_weekday_short
-from app.module_services import ModuleFetchServices, ModuleRenderServices
-from app.idle_news_rendering import draw_lines, fit_wrapped_text
+from app.module_services import ModuleRenderServices
+from app.text_rendering import draw_lines, fit_wrapped_text
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -310,12 +310,12 @@ def format_day_label(day_date: str) -> str:
         return day_date
 
 
-def fetch_dwd_weather_content(context: ModuleFetchServices) -> dict | None:
+def fetch_dwd_weather_content() -> dict | None:
     from app.config import get_int_setting, get_setting
-    from .dwd import format_unix_ms_time
+    from .dwd import fetch_dwd_weather, format_unix_ms_time
     from .dwd_pollen import fetch_dwd_pollen
 
-    weather = context.fetch_dwd_weather(False)
+    weather = fetch_dwd_weather(False)
     if weather is None:
         return None
     weather = dict(weather)
@@ -1548,12 +1548,13 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     return img.convert("RGB")
 
 
-def should_refresh_dwd_weather_module(context: ModuleFetchServices) -> bool:
+def should_refresh_dwd_weather_module() -> bool:
+    from .dwd import should_refresh_dwd_weather
     from .dwd_pollen import should_refresh_dwd_pollen
     from .dwd_uv import should_refresh_dwd_uv
 
     return (
-        context.should_refresh_dwd_weather()
+        should_refresh_dwd_weather()
         or should_refresh_dwd_uv()
         or should_refresh_dwd_pollen()
     )

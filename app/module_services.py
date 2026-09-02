@@ -1,24 +1,29 @@
+"""
+Render-Dienste, die das Framework jedem Modul bereitstellt.
+Bewusst klein: nur das, was jeder Renderer braucht.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
-
-from PIL import Image
-
-
-@dataclass(frozen=True)
-class ModuleFetchServices:
-    fetch_tagesschau_news: Callable[[bool], list[dict]]
-    should_refresh_tagesschau_news: Callable[[], bool]
-    fetch_dwd_weather: Callable[[bool], dict | None]
-    should_refresh_dwd_weather: Callable[[], bool]
 
 
 @dataclass(frozen=True)
 class ModuleRenderServices:
     render_width: int
     render_height: int
+    display_theme: str
     load_font: Callable[[int, bool], object]
-    fetch_tagesschau_image: Callable[[str], Image.Image | None]
-    create_rounded_thumbnail: Callable[[Image.Image, int, int, int], Image.Image]
-    display_theme: str = "dark"
+
+    @classmethod
+    def from_runtime(cls) -> "ModuleRenderServices":
+        """Baut die Services aus der aktuellen RuntimeConfig."""
+        from app.config import get_cfg, load_font
+        cfg = get_cfg()
+        return cls(
+            render_width=cfg.render_width,
+            render_height=cfg.render_height,
+            display_theme=cfg.display_theme,
+            load_font=load_font,
+        )

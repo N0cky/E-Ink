@@ -296,22 +296,25 @@ When settings are changed through the web UI, the application writes them back t
 ```
 PlexImageE-Ink/
 │
-├── app/                        # Framework-Kern
+├── app/                        # Framework core (no module-specific code)
 │   ├── server.py               # Flask server, render loop, and API routes
 │   ├── config.py               # Configuration, RuntimeConfig, and env-file I/O
+│   ├── logger.py               # JSONL + console logging with secret masking
 │   ├── module_base.py          # PlexInkModule base class for all modules
 │   ├── module_registry.py      # Module auto-discovery and hot reload
-│   ├── module_services.py      # Service dataclasses for modular renderers
-│   ├── http_client.py          # Shared HTTP client (requests.Session)
-│   ├── plex.py                 # Plex API client (session parsing, artwork)
-│   ├── steam.py                # Steam API client (profile resolution, artwork)
-│   └── image_rendering.py      # Shared rendering utilities
+│   ├── module_services.py      # ModuleRenderServices (size, theme, fonts)
+│   ├── http_client.py          # Shared HTTP client, image download + cache
+│   ├── image_rendering.py      # Shared image helpers (crop, blur, canvas, Spectra 6)
+│   └── text_rendering.py       # Shared text helpers (wrap, fit, draw lines)
 │
 ├── modules/                    # Fully self-contained modules
 │   ├── plex/
-│   │   └── __init__.py         # Plex module (priority 0)
+│   │   ├── __init__.py         # Plex module (priority 0)
+│   │   ├── plex.py             # Plex API client, session parsing, artwork
+│   │   └── renderer.py         # Now-playing overlays (video/music, dark/light)
 │   ├── steam/
 │   │   ├── __init__.py         # Steam module (priority 1)
+│   │   ├── steam.py            # Steam API client (profile resolution, artwork)
 │   │   └── renderer.py         # Steam-specific image rendering
 │   ├── dwd_weather/
 │   │   ├── __init__.py         # Module entry point

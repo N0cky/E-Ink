@@ -71,19 +71,7 @@ class TagesschauModule(PlexInkModule):
 
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
         from .renderer import render_tagesschau_module
-        from app.config import get_cfg, load_font
-        from .data_source import fetch_tagesschau_image
-        from app.image_rendering import create_rounded_thumbnail
-        cfg = get_cfg()
-        services = ModuleRenderServices(
-            render_width=cfg.render_width,
-            render_height=cfg.render_height,
-            load_font=load_font,
-            fetch_tagesschau_image=fetch_tagesschau_image,
-            create_rounded_thumbnail=create_rounded_thumbnail,
-            display_theme=cfg.display_theme,
-        )
-        return render_tagesschau_module(services, content)
+        return render_tagesschau_module(ModuleRenderServices.from_runtime(), content)
 
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .data_source import should_refresh_tagesschau_news
@@ -99,7 +87,7 @@ class TagesschauModule(PlexInkModule):
     def get_runtime_summary(self, env: dict[str, str]) -> dict[str, str]:
         from app.config import get_int_setting
         return {
-            "tagesschau_refresh": f"{get_int_setting('TAGESSCHAU_IDLE_CACHE_SECONDS', 900, 60, 86400)}s",
+            "Nachrichten-Refresh": f"{get_int_setting('TAGESSCHAU_IDLE_CACHE_SECONDS', 900, 60, 86400)}s",
         }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
