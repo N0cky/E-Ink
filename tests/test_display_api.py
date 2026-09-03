@@ -281,6 +281,21 @@ class BaseHookDefaultsTest(unittest.TestCase):
             self.assertIsInstance(mod.summarize(env), str)
 
 
+class DisplayPageTest(unittest.TestCase):
+    def test_home_is_the_display_page_and_old_dashboard_redirects(self) -> None:
+        client = server.app.test_client()
+        home = client.get("/")
+        self.assertEqual(home.status_code, 200)
+        html = home.get_data(as_text=True)
+        self.assertIn("Programm", html)
+        self.assertIn("/api/display", html)
+        self.assertIn("ui.js", html)
+        old = client.get("/dashboard")
+        self.assertEqual(old.status_code, 302)
+        self.assertTrue(old.headers["Location"].endswith("/"))
+        self.assertEqual(client.get("/static/ui.js").status_code, 200)
+
+
 class EventsFilterTest(unittest.TestCase):
     def test_events_filter_keeps_events_and_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

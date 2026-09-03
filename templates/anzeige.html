@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+{% set active_page = "display" %}
+
+{% block title %}PlexImageE-Ink · Anzeige{% endblock %}
+{% block page_subtitle %}Anzeige{% endblock %}
+
+{% block topbar_right %}
+<span class="chip" id="serverChip"><span class="dot"></span> Server</span>
+{% endblock %}
+
+{% block extra_styles %}
+.layout { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+.card { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; }
+.card-body { padding: 18px; }
+.card-title { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 12px; }
+.stack { display: grid; gap: 16px; }
+
+/* ── Bild ── */
+.shot { display: block; background: var(--surface3); border-bottom: 1px solid var(--border); border-radius: 20px 20px 0 0; overflow: hidden; position: relative; }
+.shot img { display: block; width: 100%; height: auto; }
+.shot.loading::after { content: ""; position: absolute; top: 12px; right: 12px; width: 22px; height: 22px; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.now-line { font-size: 16px; font-weight: 800; }
+.meta-line { color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.5; }
+.meta-line b { color: var(--text-soft); font-weight: 700; }
+.shot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+.preview-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); cursor: pointer; }
+.preview-check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* ── Programm ── */
+.mode-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.interval { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+.interval input { width: 78px; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface3); color: var(--text); font-family: inherit; font-size: 13px; }
+.rows { display: grid; }
+.row {
+    display: grid; grid-template-columns: 18px 40px minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
+    padding: 12px 0; border-top: 1px solid var(--border);
+}
+.row:first-child { border-top: 0; }
+.row.dragging { opacity: .4; }
+.row.over { box-shadow: inset 0 3px 0 var(--accent); }
+.handle { color: var(--muted); cursor: grab; user-select: none; font-size: 16px; text-align: center; }
+.row.nodrag .handle { visibility: hidden; }
+.row-main { min-width: 0; }
+.row-name { font-weight: 800; font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row-sum { color: var(--muted); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.off .row-name, .row.off .row-sum { opacity: .6; }
+.height { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.height input { width: 58px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface3); color: var(--text); font-family: inherit; font-size: 12.5px; text-align: right; }
+.height.hidden { visibility: hidden; }
+.row-actions { display: flex; gap: 6px; }
+
+/* ── Nachts ── */
+.night-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+.night-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.night-grid input, .night-grid select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface3); color: var(--text); font-family: inherit; font-size: 13px; }
+.night-grid.disabled { opacity: .5; pointer-events: none; }
+.consequence { margin-top: 10px; }
+
+/* ── Speichern ── */
+.savebar {
+    position: sticky; bottom: 12px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    background: var(--surface2); border: 1px solid var(--border-strong); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-page);
+}
+.savebar .state { font-size: 12.5px; color: var(--muted); }
+.savebar .state.dirty { color: var(--warn); font-weight: 800; }
+.banner { display: none; border-radius: 14px; padding: 12px 16px; font-size: 13px; font-weight: 700; background: rgba(239,68,68,.10); color: var(--danger); border: 1px solid rgba(239,68,68,.22); }
+.banner.show { display: block; }
+.banner ul { margin: 6px 0 0; padding-left: 18px; }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+    .row { grid-template-columns: 18px 40px minmax(0, 1fr); }
+    .row .height, .row .row-actions { grid-column: 3; justify-self: start; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="banner" id="errorBanner"></div>
+<div class="layout">
+
+    {# ── Links: das Display ── #}
+    <div class="stack">
+        <div class="card">
+            <a class="shot" id="shotLink" href="/current.png" target="_blank" rel="noreferrer" aria-label="Bild in neuem Tab öffnen">
+                <img id="shotImg" src="/current.png" alt="Aktuelles Bild auf dem Display">
+            </a>
+            <div class="card-body">
+                <div class="card-title" id="shotTitle">Jetzt auf dem Display</div>
+                <div class="now-line" id="nowLine">Wird geladen …</div>
+                <div class="meta-line" id="sinceLine"></div>
+                <div class="meta-line" id="deviceLine"></div>
+                <div class="meta-line" id="nextLine"></div>
+                <div class="shot-actions">
+                    <button class="btn" type="button" id="rerenderBtn">Jetzt neu erzeugen</button>
+                    <button class="btn" type="button" id="backBtn" hidden>Zurück zum Display</button>
+                    <label class="preview-check" title="Vorschauen so zeigen, wie das Spectra-6-Display sie nach dem Dithering darstellt">
+                        <input type="checkbox" id="deviceSim"> Vorschau wie auf dem Display
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── Rechts: das Programm ── #}
+    <div class="stack">
+        <div class="card"><div class="card-body">
+            <div class="card-title">Wenn nichts läuft</div>
+            <div class="mode-row">
+                <div class="seg" role="radiogroup" aria-label="Darstellung">
+                    <input type="radio" name="layout" value="rotation" id="layoutRotation"><label for="layoutRotation">Rotation</label>
+                    <input type="radio" name="layout" value="dashboard" id="layoutDashboard"><label for="layoutDashboard">Dashboard</label>
+                </div>
+                <div class="interval">
+                    <span id="intervalLabel">Bildwechsel alle</span>
+                    <input type="number" id="rotationSeconds" min="30" max="3600" step="10" data-key="IDLE_MODULE_ROTATION_SECONDS"> s
+                </div>
+            </div>
+            <div class="hint" id="modeHint" style="margin-top:10px"></div>
+            <div class="field-error" id="err-IDLE_MODULE_ROTATION_SECONDS"></div>
+        </div></div>
+
+        <div class="card"><div class="card-body">
+            <div class="card-title">Programm <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:600">· Reihenfolge per Ziehen</span></div>
+            <div class="rows" id="contentRows"><div class="empty">Wird geladen …</div></div>
+        </div></div>
+
+        <div class="card"><div class="card-body">
+            <div class="card-title">Live-Inhalte übernehmen das Display, solange etwas läuft</div>
+            <div class="rows" id="liveRows"><div class="empty">Wird geladen …</div></div>
+        </div></div>
+
+        <div class="card"><div class="card-body">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                <span>Nachts</span>
+                <label class="switch" title="Nachtmodus"><input type="checkbox" id="nightEnabled"><span class="track"></span></label>
+            </div>
+            <div class="night-grid" id="nightGrid">
+                <label>Von <input type="time" id="nightStart" data-key="NIGHT_MODE_START"><span class="field-error" id="err-NIGHT_MODE_START"></span></label>
+                <label>Bis <input type="time" id="nightEnd" data-key="NIGHT_MODE_END"><span class="field-error" id="err-NIGHT_MODE_END"></span></label>
+                <label>Aktualisieren alle (min) <input type="number" id="nightInterval" min="1" max="720" data-key="NIGHT_MODE_INTERVAL_MINUTES"><span class="field-error" id="err-NIGHT_MODE_INTERVAL_MINUTES"></span></label>
+                <label>Was zeigen
+                    <select id="nightBehavior" data-key="NIGHT_MODE_IDLE_BEHAVIOR">
+                        <option value="rotate">Alle eingeschalteten Inhalte</option>
+                        <option value="fixed">Nur einen Inhalt</option>
+                    </select>
+                </label>
+                <label id="nightFixedWrap">Welcher Inhalt
+                    <select id="nightFixed" data-key="NIGHT_MODE_FIXED_MODULE"></select>
+                    <span class="field-error" id="err-NIGHT_MODE_FIXED_MODULE"></span>
+                </label>
+            </div>
+            <div class="hint consequence" id="nightHint"></div>
+            <div class="field-error" id="err-NIGHT_MODE_ENABLED"></div>
+        </div></div>
+
+        <div class="savebar">
+            <span class="state" id="saveState">Keine Änderungen</span>
+            <div style="display:flex;gap:8px">
+                <button class="btn" type="button" id="discardBtn" hidden>Verwerfen</button>
+                <button class="btn primary" type="button" id="saveBtn">Speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    'use strict';
+    var esc = ui.esc;
+    var state = null;          // letzter Serverstand
+    var draft = null;          // Arbeitskopie
+    var dirty = false;
+    var previewModule = null;  // id, wenn eine Vorschau statt des Displays gezeigt wird
+    var nextAt = null;         // Zeitpunkt (ms) des nächsten Bildwechsels für den Countdown
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    /* ── Laden ── */
+    async function load() {
+        try {
+            state = await ui.json('/api/display');
+            $('serverChip').className = 'chip ok';
+            if (!dirty) { draft = JSON.parse(JSON.stringify(state)); render(); }
+            renderShot();
+        } catch (e) {
+            $('serverChip').className = 'chip danger';
+            $('nowLine').textContent = 'Server nicht erreichbar';
+        }
+    }
+
+    /* ── Linke Spalte ── */
+    function renderShot() {
+        if (previewModule) return;
+        var cur = state.current, dev = state.device, nxt = state.next;
+        var enabledNames = state.content.filter(function (c) { return c.enabled; }).map(function (c) { return c.name; });
+        var nowText;
+        if (cur.module_id === 'dashboard') nowText = 'Dashboard: ' + (enabledNames.join(', ') || '–');
+        else if (cur.module_id === 'none' || !cur.module_id) nowText = 'Kein Inhalt eingeschaltet';
+        else nowText = cur.module_name;
+        $('nowLine').textContent = nowText;
+        $('sinceLine').innerHTML = cur.rendered_at ? 'Bild erzeugt um <b>' + esc(ui.fmtTime(cur.rendered_at)) + '</b>' : '';
+        if (dev.device_id) {
+            var ok = dev.hash_matches;
+            $('deviceLine').innerHTML = 'Gerät <b>' + esc(dev.device_id) + '</b> zuletzt ' + esc(ui.ago(dev.seconds_since_ack))
+                + ' · ' + (ok ? '<span class="chip ok">zeigt das aktuelle Bild</span>' : '<span class="chip warn">holt das neue Bild beim nächsten Aufwachen</span>');
+        } else {
+            $('deviceLine').textContent = 'Noch kein Gerät hat sich gemeldet.';
+        }
+        nextAt = Date.now() + (nxt.seconds || 0) * 1000;
+        tickNext();
+        if (!previewModule) refreshImage('/current.png');
+    }
+
+    function tickNext() {
+        if (!state || previewModule) return;
+        var remaining = (nextAt - Date.now()) / 1000;
+        $('nextLine').innerHTML = 'Nächstes Bild in <b>' + esc(ui.mmss(remaining)) + '</b>' + (state.next.reason ? ' <span class="hint">· ' + esc(state.next.reason) + '</span>' : '');
+        if (remaining <= 0) { load(); }
+    }
+    setInterval(tickNext, 1000);
+
+    function refreshImage(url) {
+        var shot = $('shotLink'), img = $('shotImg');
+        shot.classList.add('loading');
+        var src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+        var tmp = new Image();
+        tmp.onload = function () { img.src = src; shot.href = src; shot.classList.remove('loading'); };
+        tmp.onerror = function () { shot.classList.remove('loading'); };
+        tmp.src = src;
+    }
+
+    async function showPreview(id, name) {
+        previewModule = id;
+        $('shotTitle').textContent = 'Vorschau';
+        $('nowLine').textContent = name;
+        $('sinceLine').textContent = 'Wird gerendert …';
+        $('deviceLine').textContent = '';
+        $('nextLine').textContent = '';
+        $('backBtn').hidden = false;
+        $('shotLink').classList.add('loading');
+        var url = '/api/preview/' + encodeURIComponent(id) + '.png?' + ($('deviceSim').checked ? 'device=1&' : '') + 't=' + Date.now();
+        try {
+            var r = await fetch(url);
+            if (!r.ok) {
+                var j = null; try { j = await r.json(); } catch (e) {}
+                $('sinceLine').textContent = (j && j.error) || ('Fehler ' + r.status);
+            } else {
+                var blob = await r.blob();
+                var objectUrl = URL.createObjectURL(blob);
+                $('shotImg').src = objectUrl; $('shotLink').href = objectUrl;
+                $('sinceLine').textContent = 'So würde ' + name + ' aussehen' + ($('deviceSim').checked ? ' (6 Farben)' : '') + '.';
+            }
+        } catch (e) { $('sinceLine').textContent = 'Vorschau fehlgeschlagen'; }
+        $('shotLink').classList.remove('loading');
+    }
+
+    function backToDisplay() {
+        previewModule = null;
+        $('shotTitle').textContent = 'Jetzt auf dem Display';
+        $('backBtn').hidden = true;
+        renderShot();
+    }
+    $('backBtn').addEventListener('click', backToDisplay);
+    $('deviceSim').addEventListener('change', function () { if (previewModule) { var row = findModule(previewModule); showPreview(previewModule, row ? row.name : previewModule); } });
+
+    $('rerenderBtn').addEventListener('click', async function () {
+        var btn = this; btn.disabled = true; btn.textContent = 'Erzeuge …';
+        try { await ui.json('/refresh', { method: 'POST' }); ui.toast('Bild neu erzeugt', 'ok'); await load(); if (previewModule) backToDisplay(); }
+        catch (e) { ui.toast('Neu erzeugen fehlgeschlagen: ' + e.message, 'error'); }
+        btn.disabled = false; btn.textContent = 'Jetzt neu erzeugen';
+    });
+
+    /* ── Rechte Spalte ── */
+    function findModule(id) {
+        return (draft.content.concat(draft.live)).find(function (m) { return m.id === id; }) || null;
+    }
+
+    function chipFor(m) {
+        if (m.active_now && !dirty) return '<span class="chip accent"><span class="dot"></span>jetzt sichtbar</span>';
+        if (m.status.state === 'missing') return '<span class="chip warn">' + esc(m.status.reason || 'nicht konfiguriert') + '</span>';
+        if (m.status.state === 'error') return '<span class="chip danger">' + esc(m.status.reason || 'Fehler') + '</span>';
+        if (!m.enabled) return '<span class="chip">aus</span>';
+        return '<span class="chip ok">bereit</span>';
+    }
+
+    function rowHtml(m, isLive) {
+        var canEnable = m.status.state !== 'missing';
+        var dash = draft.layout === 'dashboard';
+        var heightHtml = isLive ? '' :
+            '<span class="height ' + (dash && m.enabled ? '' : 'hidden') + '"><input type="number" min="5" max="100" placeholder="auto" value="' + (m.height ? esc(m.height) : '') + '" data-id="' + esc(m.id) + '" aria-label="Höhe in Prozent"' + (m.tile_supported ? '' : ' disabled title="Keine Kachel-Darstellung"') + '> %</span>';
+        var actions = '<span class="row-actions">'
+            + (m.status.state === 'missing' ? '<a class="btn small" href="/settings#section-' + esc(m.id) + '">Einrichten</a>' : '<button class="btn small" type="button" data-preview="' + esc(m.id) + '">Vorschau</button>')
+            + '</span>';
+        var noTile = (dash && !isLive && m.enabled && !m.tile_supported) ? ' <span class="chip warn">keine Kachel</span>' : '';
+        return '<div class="row ' + (m.enabled ? '' : 'off') + (isLive ? ' nodrag' : '') + '" draggable="' + (isLive ? 'false' : 'true') + '" data-id="' + esc(m.id) + '">'
+            + '<span class="handle" title="Ziehen zum Sortieren">⠿</span>'
+            + '<label class="switch"><input type="checkbox" data-toggle="' + esc(m.id) + '" ' + (m.enabled ? 'checked' : '') + (canEnable ? '' : ' disabled title="Erst einrichten"') + '><span class="track"></span></label>'
+            + '<div class="row-main"><div class="row-name">' + esc(m.name) + ' ' + chipFor(m) + noTile + '</div>'
+            + (m.summary ? '<div class="row-sum" title="' + esc(m.summary) + '">' + esc(m.summary) + '</div>' : '') + '</div>'
+            + heightHtml + actions + '</div>';
+    }
+
+    function render() {
+        if (!draft) return;
+        $('layoutRotation').checked = draft.layout === 'rotation';
+        $('layoutDashboard').checked = draft.layout === 'dashboard';
+        $('rotationSeconds').value = draft.rotation_seconds;
+        $('intervalLabel').textContent = draft.layout === 'dashboard' ? 'Aktualisieren alle' : 'Bildwechsel alle';
+        $('modeHint').textContent = draft.layout === 'dashboard'
+            ? 'Alle eingeschalteten Inhalte untereinander in einem Bild. Höhe in Prozent, leer bedeutet gleichmäßig verteilen.'
+            : 'Ein Inhalt pro Bild, in der Reihenfolge der Liste, im angegebenen Takt.';
+
+        $('contentRows').innerHTML = draft.content.length ? draft.content.map(function (m) { return rowHtml(m, false); }).join('') : '<div class="empty">Keine Inhalte gefunden.</div>';
+        $('liveRows').innerHTML = draft.live.length ? draft.live.map(function (m) { return rowHtml(m, true); }).join('') : '<div class="empty">Keine Live-Inhalte installiert.</div>';
+
+        var n = draft.night;
+        $('nightEnabled').checked = !!n.enabled;
+        $('nightGrid').classList.toggle('disabled', !n.enabled);
+        $('nightStart').value = n.start || '23:00';
+        $('nightEnd').value = n.end || '07:00';
+        $('nightInterval').value = n.interval_minutes || 15;
+        $('nightBehavior').value = n.behavior || 'rotate';
+        var fixedSel = $('nightFixed');
+        var enabledContent = draft.content.filter(function (m) { return m.enabled; });
+        fixedSel.innerHTML = '<option value="">– bitte wählen –</option>' + enabledContent.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>'; }).join('');
+        fixedSel.value = n.fixed_module || '';
+        $('nightFixedWrap').style.display = n.behavior === 'fixed' ? '' : 'none';
+        $('nightHint').textContent = !n.enabled ? 'Nachts gilt dasselbe Programm wie tagsüber.'
+            : (n.behavior === 'fixed'
+                ? ('Von ' + n.start + ' bis ' + n.end + ' zeigt das Display nur ' + (findModule(n.fixed_module) ? findModule(n.fixed_module).name : 'den gewählten Inhalt') + (draft.layout === 'dashboard' ? ' als einzige Kachel' : '') + ', aktualisiert alle ' + n.interval_minutes + ' min.')
+                : ('Von ' + n.start + ' bis ' + n.end + ' läuft das Programm weiter, aber nur alle ' + n.interval_minutes + ' min statt alle ' + Math.round(draft.rotation_seconds / 60) + ' min.'));
+        bindRows();
+        $('saveState').textContent = dirty ? 'Nicht gespeicherte Änderungen' : 'Keine Änderungen';
+        $('saveState').classList.toggle('dirty', dirty);
+        $('discardBtn').hidden = !dirty;
+    }
+
+    function markDirty() { dirty = true; render(); }
+
+    function bindRows() {
+        document.querySelectorAll('[data-toggle]').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var m = findModule(cb.getAttribute('data-toggle')); if (m) { m.enabled = cb.checked; markDirty(); }
+            });
+        });
+        document.querySelectorAll('.height input').forEach(function (inp) {
+            inp.addEventListener('change', function () {
+                var m = findModule(inp.getAttribute('data-id')); if (m) { m.height = inp.value ? parseInt(inp.value, 10) : null; dirty = true; $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false; }
+            });
+        });
+        document.querySelectorAll('[data-preview]').forEach(function (b) {
+            b.addEventListener('click', function () { var m = findModule(b.getAttribute('data-preview')); showPreview(m.id, m.name); });
+        });
+        /* Drag & Drop für die Reihenfolge */
+        var dragId = null;
+        document.querySelectorAll('#contentRows .row').forEach(function (row) {
+            row.addEventListener('dragstart', function (e) { dragId = row.getAttribute('data-id'); row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+            row.addEventListener('dragend', function () { row.classList.remove('dragging'); document.querySelectorAll('.row.over').forEach(function (r) { r.classList.remove('over'); }); });
+            row.addEventListener('dragover', function (e) { e.preventDefault(); row.classList.add('over'); });
+            row.addEventListener('dragleave', function () { row.classList.remove('over'); });
+            row.addEventListener('drop', function (e) {
+                e.preventDefault();
+                var targetId = row.getAttribute('data-id');
+                if (!dragId || dragId === targetId) return;
+                var from = draft.content.findIndex(function (m) { return m.id === dragId; });
+                var to = draft.content.findIndex(function (m) { return m.id === targetId; });
+                var moved = draft.content.splice(from, 1)[0];
+                draft.content.splice(to, 0, moved);
+                markDirty();
+            });
+        });
+    }
+
+    document.querySelectorAll('input[name="layout"]').forEach(function (r) {
+        r.addEventListener('change', function () { draft.layout = r.value; markDirty(); });
+    });
+    $('rotationSeconds').addEventListener('change', function () { draft.rotation_seconds = parseInt(this.value, 10) || 120; markDirty(); });
+    $('nightEnabled').addEventListener('change', function () { draft.night.enabled = this.checked; markDirty(); });
+    $('nightStart').addEventListener('change', function () { draft.night.start = this.value; markDirty(); });
+    $('nightEnd').addEventListener('change', function () { draft.night.end = this.value; markDirty(); });
+    $('nightInterval').addEventListener('change', function () { draft.night.interval_minutes = parseInt(this.value, 10) || 15; markDirty(); });
+    $('nightBehavior').addEventListener('change', function () { draft.night.behavior = this.value; markDirty(); });
+    $('nightFixed').addEventListener('change', function () { draft.night.fixed_module = this.value; markDirty(); });
+
+    $('discardBtn').addEventListener('click', function () { dirty = false; draft = JSON.parse(JSON.stringify(state)); clearErrors(); render(); });
+
+    /* ── Speichern ── */
+    function clearErrors() {
+        $('errorBanner').classList.remove('show'); $('errorBanner').innerHTML = '';
+        document.querySelectorAll('.field-error').forEach(function (el) { el.textContent = ''; });
+        document.querySelectorAll('.invalid').forEach(function (el) { el.classList.remove('invalid'); });
+    }
+
+    function showErrors(errors) {
+        clearErrors();
+        var fields = (errors && errors.fields) || {}, general = (errors && errors.general) || [];
+        Object.keys(fields).forEach(function (key) {
+            var el = $('err-' + key); if (el) el.textContent = fields[key];
+            var input = document.querySelector('[data-key="' + key + '"]'); if (input) input.classList.add('invalid');
+            if (!el) general.push(key + ': ' + fields[key]);
+        });
+        if (general.length) {
+            $('errorBanner').innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>';
+            $('errorBanner').classList.add('show');
+        }
+    }
+
+    $('saveBtn').addEventListener('click', async function () {
+        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
+        var payload = {
+            layout: draft.layout,
+            rotation_seconds: draft.rotation_seconds,
+            content: draft.content.map(function (m) { return { id: m.id, enabled: m.enabled, height: m.height || null }; }),
+            live: draft.live.map(function (m) { return { id: m.id, enabled: m.enabled }; }),
+            night: { enabled: draft.night.enabled, start: draft.night.start, end: draft.night.end, interval_minutes: draft.night.interval_minutes, behavior: draft.night.behavior, fixed_module: draft.night.fixed_module || '' }
+        };
+        try {
+            var result = await ui.json('/api/display', { method: 'PUT', body: payload });
+            dirty = false; clearErrors();
+            state = result.display; draft = JSON.parse(JSON.stringify(state));
+            render(); renderShot();
+            ui.toast('Gespeichert. Das Display holt sich das neue Bild beim nächsten Aufwachen.', 'ok', 4000);
+        } catch (e) {
+            showErrors(e.data && e.data.errors);
+            ui.toast('Nicht gespeichert', 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Speichern';
+    });
+
+    window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+    load();
+    setInterval(load, 30000);
+})();
+</script>
+{% endblock %}

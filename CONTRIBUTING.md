@@ -26,7 +26,7 @@ Please make sure the following pass locally:
 3. Template smoke test:
 
 ```bash
-python -c "from app.server import app; [app.jinja_env.get_template(name) for name in ['base.html','index.html','settings.html','logs.html']]; print('TEMPLATES_OK')"
+python -c "from app.server import app; [app.jinja_env.get_template(name) for name in ['base.html','anzeige.html','settings.html','logs.html']]; print('TEMPLATES_OK')"
 ```
 
 ## Coding Notes

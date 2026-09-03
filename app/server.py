@@ -12,6 +12,14 @@ import io
 import json as _json
 import logging
 import os
+import sys
+
+# `python app/server.py` legt nur app/ auf den Import-Pfad – das Projekt-Root
+# muss dazu, sonst schlägt `import app` fehl. `python -m app.server` und
+# Gunicorn (wsgi.py) sind davon nicht betroffen.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 import time
 import threading
 from datetime import datetime, timezone
@@ -1031,8 +1039,15 @@ def api_probe(module_id: str):
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
+def display_page():
+    """Startseite: was das Display zeigt und das Programm."""
+    return render_template("anzeige.html")
+
+
+@app.route("/dashboard", methods=["GET"])
 def dashboard():
-    return render_template("index.html")
+    # Alte Adresse der Statusseite – die Anzeige ist jetzt die Startseite
+    return redirect(url_for("display_page"))
 
 
 # ── Log-Viewer ───────────────────────────────────────────────────────────────
