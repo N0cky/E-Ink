@@ -1,0 +1,74 @@
+[
+	{
+		"type": "stop",
+		"id": "900100003",
+		"name": "S+U Alexanderplatz Bhf (Berlin)",
+		"location": {
+			"type": "location",
+			"id": "900100003",
+			"latitude": 52.521508,
+			"longitude": 13.411267
+		},
+		"products": {
+			"suburban": true,
+			"subway": true,
+			"tram": true,
+			"bus": true,
+			"ferry": false,
+			"express": false,
+			"regional": false
+		},
+		"ids": {
+			"ifopt": "de:11000:900100003"
+		},
+		"stationDHID": "de:11000:900100003"
+	},
+	{
+		"type": "stop",
+		"id": "900100026",
+		"name": "S+U Alexanderplatz Bhf/Gontardstr. (Berlin)",
+		"location": {
+			"type": "location",
+			"id": "900100026",
+			"latitude": 52.52105,
+			"longitude": 13.411285
+		},
+		"products": {
+			"suburban": true,
+			"subway": true,
+			"tram": true,
+			"bus": true,
+			"ferry": false,
+			"express": false,
+			"regional": false
+		},
+		"ids": {
+			"ifopt": "de:11000:900100026"
+		},
+		"stationDHID": "de:11000:900100026"
+	},
+	{
+		"type": "stop",
+		"id": "900100731",
+		"name": "S+U Alexanderplatz/Memhardstr. (Berlin) [Tram]",
+		"location": {
+			"type": "location",
+			"id": "900100731",
+			"latitude": 52.523513,
+			"longitude": 13.411366
+		},
+		"products": {
+			"suburban": true,
+			"subway": true,
+			"tram": true,
+			"bus": true,
+			"ferry": false,
+			"express": false,
+			"regional": false
+		},
+		"ids": {
+			"ifopt": "de:11000:900100731"
+		},
+		"stationDHID": "de:11000:900100731"
+	}
+]

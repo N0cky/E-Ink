@@ -46,6 +46,8 @@ def _fake_http_get(url, params=None, timeout=None, **kwargs):
         payload = _load("dwd_pollen.json")
     elif "uvi.json" in url:
         payload = _load("dwd_uv.json")
+    elif "transport.rest" in url:
+        payload = _load("departures_vbb.json" if "/departures" in url else "departures_locations.json")
     else:
         png = _png_bytes()
         return SimpleNamespace(status_code=200, content=png, text="", json=lambda: {}, raise_for_status=lambda: None)
@@ -105,7 +107,8 @@ class _SmokeBase(unittest.TestCase):
             "DISPLAY_THEME": cls.theme,
             "OUTPUT_FORMAT": "png",
             "TIMEZONE": "Europe/Berlin",
-            "IDLE_MODULES": "dwd_weather,tagesschau,gallery",
+            "IDLE_MODULES": "dwd_weather,tagesschau,gallery,departures",
+            "DEPARTURES_STOPS": "Alex|900100003",
             "DWD_WEATHER_STATION_ID": "10532",
             "DWD_POLLEN_REGION": _pollen_region_key(),
             "DWD_POLLEN_ALLERGENS": "Graeser,Birke,Beifuss",
@@ -154,6 +157,20 @@ class _SmokeBase(unittest.TestCase):
         self.assertIsNotNone(content)
         self.assertGreaterEqual(len(content), 3)
         self._assert_image(module.render(self.env, content))
+
+    def test_departures(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from modules.departures import data_source as ds
+        from modules.departures import module
+        ds.clear_cache()
+        with patch.object(ds, "now_local", return_value=datetime(2026, 9, 3, 23, 10, tzinfo=ZoneInfo("Europe/Berlin"))):
+            content = module.fetch_content(self.env)
+        self.assertIsNotNone(content, "Abfahrten-Fixture muss Inhalt liefern")
+        self.assertTrue(content["sections"][0]["rows"])
+        self._assert_image(module.render(self.env, content))
+        self.assertEqual(module.render_tile(self.env, content, 600, 300).size, (600, 300))
+        ds.clear_cache()
 
     def test_gallery(self) -> None:
         from modules.gallery import module
