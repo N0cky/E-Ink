@@ -34,6 +34,7 @@ Supported output modes:
 - **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours and icons included, with a `{year}` placeholder so the URL never needs a yearly update; reminder banner in the evening before collection (the module then jumps ahead in the rotation), week strip or list for the coming days, one column per address if you like, and the last good calendar is kept when the municipality's server is down
 - **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events; the last good calendar is kept on disk and shown with "Stand vom …" when a source is down, and "Verbindung prüfen" lists the next appointments per calendar
 - **Schedule** – time windows per weekday with their own contents, layout and refresh interval: weather and garbage in the morning, the dashboard during the day, the calendar in the evening, everything slower at night. Outside the windows the normal programme applies
+- **Watching the device** – acknowledgement history with a chart on the *Gerät* page (signal, cycle times, gaps), a push notification via ntfy, Discord or Slack when the display stops reporting and when it is back, and `/metrics` for Prometheus, Grafana or Uptime Kuma
 - **Render history** – the last 24 images the display received, as a strip under the live image on the *Anzeige* page; click one to see what the display showed at 7:30
 - **Dashboard mode** – instead of rotating full-screen modules, stack several of them as tiles in one image (`IDLE_LAYOUT=dashboard`): weather on top, calendar in the middle, garbage or news below. Fewer display refreshes, more information per glance
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
@@ -260,6 +261,8 @@ Recommended setup for all environments:
 | `OUTPUT_FORMAT` | `png` or `bmp` (Spectra 6) | `png` |
 | `REFRESH_INTERVAL` | Poll interval in seconds | `60` |
 | `TIMEZONE` | IANA timezone, for example `Europe/Berlin` | `Europe/Berlin` |
+| `NOTIFY_URL` | Notification target: an ntfy topic (`https://ntfy.sh/my-display`), a Discord or Slack webhook, or any URL accepting a text POST. One message when the device has been silent for `NOTIFY_OFFLINE_MINUTES`, one when it is back | `` |
+| `NOTIFY_OFFLINE_MINUTES` | Minutes without an acknowledgement before the outage message is sent, `0` = never | `30` |
 | `IDLE_MODULES` | Active idle modules, comma-separated | `` |
 | `IDLE_LAYOUT` | `rotation` (one module per image, in turns) or `dashboard` (several modules stacked as tiles in one image) | `rotation` |
 | `DASHBOARD_TILES` | Tile order and heights for the dashboard, e.g. `dwd_weather:45, calendar:30, garbage:25`. Modules without a percentage share the rest. Empty: all active idle modules with equal height | `` |
@@ -297,6 +300,9 @@ When settings are changed through the web UI, the application writes them back t
 | `/firmware.json`, `/firmware.bin` | GET | Firmware hosted for over-the-air updates (`x-MD5` header on the binary) |
 | `/api/device/firmware` | GET/POST/DELETE | Upload (multipart `file`), inspect or remove the hosted firmware |
 | `/api/device/log` | GET/DELETE | Device log sent with each acknowledgement |
+| `/metrics` | GET | Prometheus text format: renders and errors per content, acknowledgements per result, image age, device (last contact, online, RSSI, cycle times, firmware, gaps in the last 24 h), content states, active schedule window |
+| `/api/device/history` | GET/DELETE | Acknowledgement history of the device (`?hours=24`): entries with result, RSSI and cycle times plus statistics (longest gap, gaps over threshold, average cycle, weakest signal) |
+| `/api/notify/test` | POST | Send a test notification to the configured address (or `{"url": …}` in the body) |
 | `/api/history` | GET/DELETE | Render history: the last images the display received (time, content, hash, URL); DELETE clears it |
 | `/history/<id>.png` | GET | One image from the render history (reduced size) |
 | `/refresh` | POST | Force an immediate re-render |

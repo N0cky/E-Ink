@@ -16,6 +16,16 @@
 .kv:last-child { border-bottom: 0; }
 .kv .k { color: var(--muted); }
 .kv .v { font-weight: 700; text-align: right; word-break: break-all; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.stat { background: var(--surface3); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.stat .n { font-size: 18px; font-weight: 800; }
+.stat .l { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.chart { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 12px; background: var(--surface3); }
+.acks { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+.acks th, .acks td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.acks th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.acks td.r, .acks th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.range { display: flex; gap: 6px; align-items: center; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; list-style: none; }
 details summary::-webkit-details-marker { display: none; }
@@ -37,6 +47,19 @@ details[open] summary { margin-bottom: 8px; }
                 <span class="state" id="deviceState">Keine Änderungen</span>
             </div>
         </div></div>
+
+        <div class="card"><div class="card-body">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+                <span>Verlauf des Geräts</span>
+                <span class="range">
+                    <div class="seg" role="radiogroup" aria-label="Zeitraum">
+                        <input type="radio" name="histRange" value="24" id="hist24" checked><label for="hist24">24 h</label>
+                        <input type="radio" name="histRange" value="168" id="hist168"><label for="hist168">7 Tage</label>
+                    </div>
+                </span>
+            </div>
+            <div id="history"><div class="hint">Wird geladen …</div></div>
+        </div></div>
     </div>
 
     <div class="stack">
@@ -53,6 +76,17 @@ details[open] summary { margin-bottom: 8px; }
                 <button class="btn" type="button" id="fwDelete" hidden>Entfernen</button>
             </div>
             <div class="hint" style="margin-top:8px">Die .bin aus dem Arduino-Build hochladen. Das Gerät vergleicht beim nächsten Aufwachen die Version, spielt das Update ein und meldet sich mit der neuen Firmware zurück. Schlägt der Start fehl, kehrt es von allein zur alten Firmware zurück.</div>
+        </div></div>
+        <div class="card"><div class="card-body">
+            <div class="card-title">Benachrichtigung</div>
+            <div class="banner" id="notifyBanner"></div>
+            <form id="notifyForm"><div class="hint">Wird geladen …</div></form>
+            <div class="actions-row" style="flex-wrap:wrap">
+                <button class="btn primary" type="button" id="saveNotify">Speichern</button>
+                <button class="btn" type="button" id="testNotify">Testnachricht senden</button>
+                <span class="state" id="notifyState">Keine Änderungen</span>
+            </div>
+            <div class="hint" style="margin-top:8px">Mit <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy</a> reicht ein Topic wie <span class="mono">https://ntfy.sh/mein-display</span> und die App auf dem Handy. Discord- und Slack-Webhooks gehen auch. Für Grafana oder Uptime-Kuma gibt es <a class="mono" href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.</div>
         </div></div>
         <div class="card"><div class="card-body">
             <details>
@@ -75,7 +109,11 @@ details[open] summary { margin-bottom: 8px; }
 
     async function loadForm() {
         var s = await ui.json('/api/settings/framework');
-        var device = s.fields.filter(function (f) { return f.device; });
+        var notify = s.fields.filter(function (f) { return f.device && f.name.indexOf('NOTIFY_') === 0; });
+        var device = s.fields.filter(function (f) { return f.device && f.name.indexOf('NOTIFY_') !== 0; });
+        var nform = $('notifyForm');
+        nform.innerHTML = fields.renderGroups(notify, []);
+        fields.bind(nform, function () { $('notifyState').textContent = 'Nicht gespeicherte Änderungen'; $('notifyState').classList.add('dirty'); });
         var themeField = device.find(function (f) { return f.name === 'DISPLAY_THEME'; });
         currentTheme = themeField ? themeField.value : 'dark';
         var form = $('deviceForm');
@@ -131,7 +169,110 @@ details[open] summary { margin-bottom: 8px; }
         btn.disabled = false; btn.textContent = 'Speichern';
     });
 
+    $('saveNotify').addEventListener('click', async function () {
+        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
+        var form = $('notifyForm'); var banner = $('notifyBanner'); banner.classList.remove('show'); banner.innerHTML = '';
+        try {
+            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
+            fields.clearErrors(form);
+            $('notifyState').textContent = 'Gespeichert'; $('notifyState').classList.remove('dirty');
+            ui.toast('Gespeichert.', 'ok');
+        } catch (e) {
+            var general = fields.showErrors(form, e.data && e.data.errors);
+            if (general.length) { banner.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>'; banner.classList.add('show'); }
+            ui.toast('Nicht gespeichert', 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Speichern';
+    });
+
+    $('testNotify').addEventListener('click', async function () {
+        var btn = this; btn.disabled = true; btn.textContent = 'Sendet …';
+        var values = fields.collect($('notifyForm'));
+        try {
+            await ui.json('/api/notify/test', { method: 'POST', body: { url: values.NOTIFY_URL || '' } });
+            ui.toast('Testnachricht verschickt. Sie sollte jetzt auf dem Handy sein.', 'ok', 5000);
+        } catch (e) { ui.toast('Nicht angekommen: ' + e.message, 'error', 6000); }
+        btn.disabled = false; btn.textContent = 'Testnachricht senden';
+    });
+
     function kv(k, v) { return '<div class="kv"><span class="k">' + esc(k) + '</span><span class="v">' + v + '</span></div>'; }
+
+    /* ── Verlauf des Geräts: Kennzahlen, Diagramm, letzte Rückmeldungen ── */
+    function fmtGap(s) {
+        if (s == null) return '–';
+        if (s < 90) return s + ' s';
+        if (s < 5400) return Math.round(s / 60) + ' min';
+        if (s < 172800) return (s / 3600).toFixed(1) + ' h';
+        return Math.round(s / 86400) + ' Tage';
+    }
+
+    function stat(n, l, cls) { return '<div class="stat"><div class="n' + (cls ? ' ' + cls : '') + '">' + n + '</div><div class="l">' + esc(l) + '</div></div>'; }
+
+    function chartSvg(entries, expected) {
+        var W = 600, H = 130, padL = 34, padR = 8, padT = 10, padB = 22;
+        if (!entries.length) return '';
+        var t0 = new Date(entries[0].t).getTime(), t1 = Date.now();
+        var span = Math.max(1, t1 - t0);
+        var x = function (t) { return padL + (new Date(t).getTime() - t0) / span * (W - padL - padR); };
+        var rssiY = function (r) { var v = Math.max(-95, Math.min(-40, r)); return padT + (-40 - v) / 55 * (H - padT - padB); };
+        var maxCycle = Math.max.apply(null, entries.map(function (e) { return e.cycle_ms || 0; }).concat([1]));
+        var cycY = function (c) { return H - padB - (c / maxCycle) * (H - padT - padB) * 0.45; };
+        var parts = ['<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="WLAN-Signal und Zyklusdauer">'];
+        [-50, -70, -90].forEach(function (r) {
+            var y = rssiY(r).toFixed(1);
+            parts.push('<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" stroke="currentColor" stroke-opacity=".12"/>');
+            parts.push('<text x="' + (padL - 4) + '" y="' + (+y + 3) + '" font-size="9" text-anchor="end" fill="currentColor" fill-opacity=".6">' + r + '</text>');
+        });
+        entries.forEach(function (e) {
+            if (e.cycle_ms) parts.push('<rect x="' + (x(e.t) - 1).toFixed(1) + '" y="' + cycY(e.cycle_ms).toFixed(1) + '" width="2" height="' + (H - padB - cycY(e.cycle_ms)).toFixed(1) + '" fill="currentColor" fill-opacity=".18"/>');
+        });
+        var seg = [], threshold = Math.max(60, expected * 3) * 1000, prev = null;
+        var flush = function () { if (seg.length > 1) parts.push('<polyline points="' + seg.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="1.6"/>'); seg = []; };
+        entries.forEach(function (e) {
+            var tt = new Date(e.t).getTime();
+            if (prev !== null && tt - prev > threshold) flush();
+            if (e.rssi != null) seg.push(x(e.t).toFixed(1) + ',' + rssiY(e.rssi).toFixed(1));
+            if (e.result === 'error') parts.push('<circle cx="' + x(e.t).toFixed(1) + '" cy="' + (H - padB + 6) + '" r="2.5" fill="var(--danger)"/>');
+            prev = tt;
+        });
+        flush();
+        var labels = 4;
+        for (var i = 0; i <= labels; i++) {
+            var tt = t0 + span * i / labels;
+            var d = new Date(tt);
+            var lbl = span > 36 * 3600 * 1000 ? d.toLocaleDateString('de-DE', { weekday: 'short' }) + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            parts.push('<text x="' + x(tt).toFixed(1) + '" y="' + (H - 6) + '" font-size="9" text-anchor="' + (i === 0 ? 'start' : i === labels ? 'end' : 'middle') + '" fill="currentColor" fill-opacity=".6">' + esc(lbl) + '</text>');
+        }
+        parts.push('</svg>');
+        return parts.join('');
+    }
+
+    async function loadHistory() {
+        var hours = (document.querySelector('input[name="histRange"]:checked') || {}).value || '24';
+        var box = $('history');
+        try {
+            var h = await ui.json('/api/device/history?hours=' + hours);
+            var st = h.stats, entries = h.entries;
+            if (!entries.length) { box.innerHTML = '<div class="hint">Noch keine Rückmeldungen im Zeitraum. Sobald das Gerät ein Bild bestätigt, entsteht hier der Verlauf.</div>'; return; }
+            var html = '<div class="stats">'
+                + stat(st.count, 'Meldungen in ' + (hours === '24' ? '24 h' : '7 Tagen'))
+                + stat(fmtGap(st.longest_gap_s), 'längste Pause', st.longest_gap_s > st.gap_threshold_s ? 'warn-text' : '')
+                + stat(st.gaps_over_threshold, 'Pausen über ' + fmtGap(st.gap_threshold_s), st.gaps_over_threshold ? 'warn-text' : '')
+                + stat(st.avg_cycle_ms != null ? (st.avg_cycle_ms / 1000).toFixed(1) + ' s' : '–', 'Ø Zyklus' + (st.max_cycle_ms != null ? ' · max ' + (st.max_cycle_ms / 1000).toFixed(1) + ' s' : ''))
+                + stat(st.rssi_min != null ? st.rssi_min + ' dBm' : '–', 'WLAN schwächstes' + (st.rssi_avg != null ? ' · Ø ' + st.rssi_avg : ''))
+                + stat(st.errors, 'Fehlermeldungen', st.errors ? 'warn-text' : '')
+                + '</div>' + chartSvg(entries, h.expected_seconds)
+                + '<div class="hint" style="margin-top:6px">Linie: WLAN-Signal in dBm (oben = besser), Balken: Zyklusdauer, rote Punkte: Fehler. Lücken in der Linie sind Pausen über dem Dreifachen des Takts.</div>';
+            var last = entries.slice(-10).reverse();
+            html += '<table class="acks"><tr><th>Zeit</th><th>Ergebnis</th><th class="r">WLAN</th><th class="r">Zyklus</th><th class="r">Download</th><th class="r">Anzeige</th></tr>'
+                + last.map(function (e) {
+                    var res = e.result === 'updated' ? '<span class="chip ok">neues Bild</span>' : e.result === 'unchanged' ? '<span class="chip">unverändert</span>' : e.result === 'error' ? '<span class="chip danger" title="' + esc(e.error || '') + '">Fehler</span>' : '<span class="chip">' + esc(e.result) + '</span>';
+                    return '<tr><td>' + esc(ui.fmtDateTime(e.t)) + '</td><td>' + res + '</td><td class="r">' + (e.rssi != null ? esc(e.rssi + ' dBm') : '–') + '</td><td class="r">' + (e.cycle_ms != null ? (e.cycle_ms / 1000).toFixed(1) + ' s' : '–') + '</td><td class="r">' + (e.download_ms != null ? (e.download_ms / 1000).toFixed(1) + ' s' : '–') + '</td><td class="r">' + (e.refresh_ms != null ? (e.refresh_ms / 1000).toFixed(1) + ' s' : '–') + '</td></tr>';
+                }).join('') + '</table>';
+            box.innerHTML = html;
+        } catch (e) { box.innerHTML = '<div class="hint">Verlauf nicht ladbar.</div>'; }
+    }
+    document.querySelectorAll('input[name="histRange"]').forEach(function (r) { r.addEventListener('change', loadHistory); });
 
     async function loadClient() {
         try {
@@ -230,8 +371,9 @@ details[open] summary { margin-bottom: 8px; }
         catch (e) { ui.toast('Konnte nicht entfernen: ' + e.message, 'error'); }
     });
 
-    loadForm().then(loadClient);
+    loadForm().then(loadClient).then(loadHistory);
     setInterval(loadClient, 30000);
+    setInterval(loadHistory, 60000);
 })();
 </script>
 {% endblock %}

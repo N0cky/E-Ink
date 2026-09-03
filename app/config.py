@@ -188,6 +188,31 @@ SETTINGS_FIELDS: list[dict] = [
         "max":     23,
         "help":    "Stunde, in der die Reinigung fällig wird – das Gerät macht sie beim ersten Aufwachen in dieser Stunde.",
     },
+    # ── Benachrichtigung ─────────────────────────────────────────────────────
+    {
+        "name":        "NOTIFY_URL",
+        "label":       "Benachrichtigung an",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        True,
+        "default":     "",
+        "placeholder": "https://ntfy.sh/mein-display",
+        "help": (
+            "ntfy-Topic (App auf dem Handy), Discord- oder Slack-Webhook. Der Server meldet, "
+            "wenn sich das Display länger nicht gemeldet hat, und wenn es wieder da ist. Leer = aus."
+        ),
+    },
+    {
+        "name":    "NOTIFY_OFFLINE_MINUTES",
+        "label":   "Ausfall melden nach (min)",
+        "type":    "number",
+        "section": "framework",
+        "wide":    False,
+        "default": "30",
+        "min":     0,
+        "max":     1440,
+        "help":    "Minuten ohne Rückmeldung des Geräts, bis die Nachricht rausgeht. 0 = nie.",
+    },
     # ── Lokalisierung ────────────────────────────────────────────────────────
     {
         "name":        "TIMEZONE",
@@ -360,6 +385,11 @@ SETTINGS_GROUPS: list[dict] = [
         "fields": ["PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR"],
     },
     {
+        "title":  "Benachrichtigung",
+        "desc":   "Nachricht aufs Handy, wenn das Display ausfällt oder wieder da ist.",
+        "fields": ["NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES"],
+    },
+    {
         "title":  "Lokalisierung",
         "desc":   "Zeitzone für Uhrzeiten und lokale Daten.",
         "fields": ["TIMEZONE"],
@@ -511,6 +541,8 @@ class RuntimeConfig:
     idle_layout:                   str   = "rotation"     # rotation | dashboard
     dashboard_tiles:               tuple = ()             # ((module_id, prozent), …)
     schedule_windows:              tuple = ()             # (schedule.Window, …) – leer: alter Nachtmodus gilt
+    notify_url:                    str   = ""             # ntfy/Discord/Slack – leer: keine Benachrichtigung
+    notify_offline_minutes:        int   = 30             # 0 = nie melden
     night_mode_enabled:            bool  = False
     night_mode_start:              str   = "23:00"
     night_mode_end:                str   = "07:00"
@@ -725,6 +757,10 @@ def validate_settings(updates: dict[str, str], all_fields: list[dict] | None = N
         from app.schedule import validate_raw
         errors.extend(validate_raw(updates.get("SCHEDULE_WINDOWS", "")))
 
+    notify_url = get_env_value(updates, "NOTIFY_URL", "").strip()
+    if notify_url and not notify_url.lower().startswith(("http://", "https://")):
+        errors.append("Benachrichtigung an: Bitte eine Adresse mit http:// oder https:// angeben.")
+
     return errors
 
 
@@ -744,6 +780,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     show_render_time = parse_bool_env(settings.get("SHOW_RENDER_TIME"), False)
     panel_clean_interval_days = _parse_int(settings, "PANEL_CLEAN_INTERVAL_DAYS", 14, 0, 365)
     panel_clean_hour = _parse_int(settings, "PANEL_CLEAN_HOUR", 3, 0, 23)
+    notify_url = get_env_value(settings, "NOTIFY_URL", "").strip()
+    notify_offline_minutes = _parse_int(settings, "NOTIFY_OFFLINE_MINUTES", 30, 0, 1440)
     display_theme = get_env_value(settings, "DISPLAY_THEME", "dark").strip().lower()
     if display_theme not in AVAILABLE_THEMES:
         display_theme = "dark"
@@ -788,6 +826,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "SHOW_RENDER_TIME": as_env_value(show_render_time),
         "PANEL_CLEAN_INTERVAL_DAYS": as_env_value(panel_clean_interval_days),
         "PANEL_CLEAN_HOUR": as_env_value(panel_clean_hour),
+        "NOTIFY_URL": as_env_value(notify_url),
+        "NOTIFY_OFFLINE_MINUTES": as_env_value(notify_offline_minutes),
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
@@ -812,6 +852,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         show_render_time=show_render_time,
         panel_clean_interval_days=panel_clean_interval_days,
         panel_clean_hour=panel_clean_hour,
+        notify_url=notify_url,
+        notify_offline_minutes=notify_offline_minutes,
         render_width=render_w,
         render_height=render_h,
         timezone=timezone_name,

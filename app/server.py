@@ -417,8 +417,9 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         log_event("switch", f"Display zeigt jetzt: {shown}")
     if not unchanged:
         # Verlauf: nur echte neue Bilder, nicht die „unverändert“-Durchläufe
-        from app import history
+        from app import history, monitoring
         history.record(image, module_id, shown, image_hash)
+        monitoring.increment("pleximage_renders_total", module=module_id)
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +463,7 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
                 _save_image(image, state_key, mod.MODULE_ID)
             except Exception as exc:
                 log.error(f"render [{mod.MODULE_ID}]: {exc}", exc_info=True)
+                _count_render_error(mod.MODULE_ID)
                 return last_state_key
         return state_key
 
@@ -484,6 +486,7 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
                     _save_image(image, state_key, "dashboard")
                 except Exception as exc:
                     log.error(f"render [dashboard]: {exc}", exc_info=True)
+                    _count_render_error("dashboard")
                     return last_state_key
             return state_key
         # kein Inhalt in keiner Kachel → normale Rotation als Fallback
@@ -511,6 +514,7 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
                     _save_image(image, state_key, mod.MODULE_ID)
                 except Exception as exc:
                     log.error(f"render [{mod.MODULE_ID}]: {exc}", exc_info=True)
+                    _count_render_error(mod.MODULE_ID)
                     return last_state_key
             return state_key
 
@@ -522,6 +526,11 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
             log.error(f"render placeholder: {exc}", exc_info=True)
             return last_state_key
     return "__no_content__"
+
+
+def _count_render_error(module_id: str) -> None:
+    from app import monitoring
+    monitoring.increment("pleximage_render_errors_total", module=module_id)
 
 
 def _rotation_sequence(enabled_idle: list, env: dict[str, str]) -> list:
@@ -631,11 +640,24 @@ def _run_worker_cycle(last_state_key: str | None) -> str | None:
     return last_state_key
 
 
+def _check_device_offline() -> None:
+    """Nach jedem Worker-Durchlauf: Gerät zu lange still? Dann einmal melden."""
+    try:
+        from app import monitoring
+        cfg = get_cfg()
+        if monitoring.check_device_offline(_last_ack, cfg.notify_url, cfg.notify_offline_minutes) == "offline":
+            monitoring.increment("pleximage_notifications_total", kind="offline")
+            log_event("device", f"Gerät {_last_ack.get('device_id') or '?'} meldet sich nicht mehr – Benachrichtigung verschickt", logging.WARNING)
+    except Exception as exc:
+        log.warning(f"Ausfallprüfung: {exc}")
+
+
 def periodic_worker() -> None:
     last_state_key: str | None = None
 
     while True:
         last_state_key = _run_worker_cycle(last_state_key)
+        _check_device_offline()
         # Warten bis zum nächsten Poll oder bis ein Request den Worker weckt
         _wake_event.wait(timeout=_get_background_poll_seconds())
         _wake_event.clear()
@@ -952,7 +974,8 @@ def ack():
     seriellen Logzeilen des Zyklus.
     """
     global _last_ack
-    from app.device import append_device_log, firmware_info, normalize_ack
+    from app import monitoring
+    from app.device import append_device_log, firmware_info, load_device_state, normalize_ack, save_device_state
     body = request.get_json(silent=True) or {}
     ack_data = normalize_ack(body, request.remote_addr)
     previous = dict(_last_ack)
@@ -962,6 +985,19 @@ def ack():
     result = ack_data.get("result", "updated")
     hash_short = ack_data.get("hash", "")[:8] or "–"
     matches = ack_data.get("hash", "") == _esp32_state.get("hash", "")
+
+    # Beobachtung: Historie, Zähler, Entwarnung nach gemeldetem Ausfall, letzte Rückmeldung überlebt einen Neustart
+    monitoring.record_ack(ack_data, matches)
+    monitoring.increment("pleximage_acks_total", result=result)
+    try:
+        if monitoring.note_device_ack(ack_data, get_cfg().notify_url) == "online":
+            monitoring.increment("pleximage_notifications_total", kind="online")
+            log_event("device", f"Gerät {device} ist wieder da – Entwarnung verschickt")
+        state = load_device_state()
+        state["last_ack"] = ack_data
+        save_device_state(state)
+    except Exception as exc:
+        log.warning(f"ACK-Beobachtung: {exc}")
 
     if isinstance(body.get("log"), list):
         append_device_log(device, body["log"], ack_data["ack_at"])
@@ -998,6 +1034,70 @@ def ack():
         "ack_at": ack_data["ack_at"],
         "firmware": {"version": fw["version"], "md5": fw["md5"], "url": fw["url"]} if fw else None,
     })
+
+
+# ── Beobachtung: Metrics, ACK-Historie, Benachrichtigung ─────────────────────
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    """Prometheus-Textformat: Renders, Rückmeldungen, Gerätezustand, Inhalte, Zeitplan."""
+    from app import monitoring
+    from app.display_api import build_display_state
+    cfg = get_cfg()
+    state = build_display_state(_esp32_state, _last_ack, _suggest_next_wake(_esp32_state.get("state", "idle"), _esp32_state.get("media_type", "idle")))
+    modules = [{"id": m["id"], "enabled": m["enabled"], "state": m["status"]["state"]} for m in state["content"] + state["live"]]
+    text = monitoring.prometheus_text(
+        _esp32_state, _last_ack, (state["next"]["seconds"], state["next"]["reason"]),
+        _get_background_poll_seconds(), modules, _get_schedule_state(), cfg.notify_offline_minutes,
+    )
+    return text, 200, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"}
+
+
+@app.route("/api/device/history", methods=["GET"])
+def api_device_history():
+    from app import monitoring
+    try:
+        hours = max(1.0, min(24.0 * 14, float(request.args.get("hours", "24"))))
+        limit = max(10, min(5000, int(request.args.get("limit", "600"))))
+    except ValueError:
+        hours, limit = 24.0, 600
+    entries = monitoring.read_ack_history(limit=limit, hours=hours)
+    expected, _ = _suggest_next_wake(_esp32_state.get("state", "idle"), _esp32_state.get("media_type", "idle"))
+    return jsonify({
+        "hours": hours,
+        "expected_seconds": int(expected),
+        "entries": entries,
+        "stats": monitoring.ack_stats(entries, int(expected)),
+    })
+
+
+@app.route("/api/device/history", methods=["DELETE"])
+def api_device_history_delete():
+    from app import monitoring
+    removed = monitoring.clear_ack_history()
+    log_event("device", f"ACK-Historie geleert ({removed} Einträge)")
+    return jsonify({"ok": True, "removed": removed})
+
+
+@app.route("/api/notify/test", methods=["POST"])
+def api_notify_test():
+    """Testnachricht an die gespeicherte oder die im Body übergebene Adresse."""
+    from app import monitoring
+    body = request.get_json(silent=True) or {}
+    url = str(body.get("url") or get_cfg().notify_url or "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "Keine Adresse für Benachrichtigungen eingetragen."}), 400
+    if not url.lower().startswith(("http://", "https://")):
+        return jsonify({"ok": False, "error": "Die Adresse muss mit http:// oder https:// beginnen."}), 400
+    device = _last_ack.get("device_id") or "Das Display"
+    ok = monitoring.send_notification(url, "PlexImageE-Ink: Testnachricht",
+                                      f"Benachrichtigungen funktionieren. {device} wird gemeldet, wenn es sich "
+                                      f"{get_cfg().notify_offline_minutes} min nicht meldet.", tags="bell")
+    if not ok:
+        return jsonify({"ok": False, "error": "Die Nachricht kam nicht an – Adresse prüfen (Ereignisse zeigen die Antwort)."}), 502
+    monitoring.increment("pleximage_notifications_total", kind="test")
+    log_event("device", "Testnachricht verschickt")
+    return jsonify({"ok": True})
 
 
 # ── Firmware und Gerätelog ───────────────────────────────────────────────────
@@ -1426,6 +1526,20 @@ def log_startup_config() -> None:
         log.info(f"[{mod.MODULE_ID}] {'aktiv' if mod.is_enabled(env) else 'inaktiv'} – {parts}")
 
 
+def _restore_last_ack() -> None:
+    """Letzte Rückmeldung aus device_state.json, damit Gerät-Seite und Ausfallprüfung nach einem Neustart weiterwissen."""
+    global _last_ack
+    if _last_ack:
+        return
+    try:
+        from app.device import load_device_state
+        saved = load_device_state().get("last_ack")
+        if isinstance(saved, dict) and saved.get("ack_at"):
+            _last_ack = dict(saved)
+    except Exception as exc:
+        log.warning(f"Letzte Rückmeldung nicht wiederherstellbar: {exc}")
+
+
 def ensure_runtime_started() -> None:
     """
     Startet Initial-Render und Background-Worker genau einmal pro Prozess.
@@ -1442,6 +1556,7 @@ def ensure_runtime_started() -> None:
 
         log.info(f"Module geladen: {[m.MODULE_ID for m in _registry.get_modules()]}")
         log_startup_config()
+        _restore_last_ack()
 
         if not CURRENT_IMAGE_PATH.exists():
             render_image()

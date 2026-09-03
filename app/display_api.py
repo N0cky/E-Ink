@@ -35,7 +35,7 @@ DISPLAY_MANAGED_KEYS = {
     "NIGHT_MODE_INTERVAL_MINUTES", "NIGHT_MODE_IDLE_BEHAVIOR", "NIGHT_MODE_FIXED_MODULE",
 }
 DEVICE_KEYS = {"RENDER_WIDTH", "RENDER_HEIGHT", "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT", "SHOW_RENDER_TIME",
-               "PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR"}
+               "PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR", "NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES"}
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +177,10 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
             "format":      esp32_state.get("format", ""),
         },
         "next": {"seconds": int(next_wake[0]), "reason": str(next_wake[1])},
+        "notify": {
+            "url_set":         bool(cfg.notify_url),
+            "offline_minutes": cfg.notify_offline_minutes,
+        },
         "device": {
             "device_id":        last_ack.get("device_id", ""),
             "ack_at":           ack_at,
