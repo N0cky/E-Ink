@@ -14,6 +14,8 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 - `DISPLAY_THEME=eink`: flat theme using only the six Spectra 6 colours, no blur, gradients or shadows – nothing turns into dithering noise on the panel
 - Dashboard mode (`IDLE_LAYOUT=dashboard`, `DASHBOARD_TILES`): several idle modules stacked as tiles in one image; new optional module hook `render_tile()`
 - `Müllabfuhr` module: municipal ICS collection calendars with bin colours, `{year}` placeholder in the URL, several addresses
+- `Müllabfuhr`: reminder banner "Morgen rausstellen" from an evening hour (`GARBAGE_REMINDER_HOUR`), the module is then interleaved into the rotation and moved to the top of the dashboard; collection counts as done from `GARBAGE_DONE_HOUR`; shifted dates show "verschoben, sonst Montag"; week strip with icons per bin type (`GARBAGE_UPCOMING_STYLE`), one column per address (`GARBAGE_LAYOUT=columns`), icons for sack, paper, bulky waste and Christmas tree; last successful calendar is kept on disk and shown with "Stand vom …" when the source is down; missing year calendars (404) are reported instead of an empty tile; "Verbindung prüfen" lists the next dates and how every summary is classified
+- Module hook `is_urgent()`; `probe()` may return `details` lines shown under the result
 - `Kalender` module: ICS calendars (Google, Nextcloud, iCloud, Outlook) with recurring events, time zones, multi-day events and a colour per source
 - On-demand module preview `/api/preview/<module>.png` with theme override and 6-colour display simulation, wired into the settings page
 - Optional `PLEXINK_UI_PASSWORD` (HTTP Basic Auth for the web UI; ESP32 endpoints stay open)

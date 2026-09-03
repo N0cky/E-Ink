@@ -191,6 +191,15 @@ class PlexInkModule(ABC):
             return {"ok": False, "message": "Quelle liefert gerade keine Daten"}
         return {"ok": True, "message": "Daten vorhanden"}
 
+    def is_urgent(self, env: dict[str, str]) -> bool:
+        """
+        True, wenn das Modul gerade etwas Zeitkritisches zeigt (z. B. Müllabfuhr
+        morgen früh). Dringende Idle-Module werden in der Rotation zwischen die
+        anderen geschoben (jedes zweite Bild) und im Dashboard nach oben sortiert.
+        Standard: False. Muss schnell sein – wird bei jedem Render-Durchlauf gefragt.
+        """
+        return False
+
     def supports_tile(self) -> bool:
         """True, wenn das Modul render_tile() überschreibt (Dashboard-Kachel)."""
         return type(self).render_tile is not PlexInkModule.render_tile

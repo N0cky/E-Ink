@@ -10,6 +10,9 @@ from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import json
+import tempfile
+import time
 import unittest
 
 from PIL import Image
@@ -111,6 +114,9 @@ class ContentBuildTest(unittest.TestCase):
 class FetchAndLifecycleTest(unittest.TestCase):
     def setUp(self) -> None:
         ds.clear_cache()
+        self._tmp = tempfile.TemporaryDirectory()
+        self._cache_patch = patch.object(ds, "CACHE_FILE", Path(self._tmp.name) / "garbage_cache.json")
+        self._cache_patch.start()
         self.settings = dict(config.read_env_settings())
         self.settings.update({
             "IDLE_MODULES": "garbage",
@@ -122,6 +128,8 @@ class FetchAndLifecycleTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         ds.clear_cache()
+        self._cache_patch.stop()
+        self._tmp.cleanup()
         config.apply_runtime_config()
 
     def _fake_get(self, url, timeout=None, headers=None, **kw):
@@ -205,6 +213,138 @@ class RenderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _series(summary: str, label: str, weekday_dates: list[date]) -> list[dict]:
+    return [{"date": d, "summary": summary, "label": label} for d in weekday_dates]
+
+
+class ReminderAndShiftTest(unittest.TestCase):
+    """Erledigt-Uhrzeit, Erinnerung am Vorabend, verschobene Termine, Spalten je Adresse."""
+
+    MONDAYS = [date(2026, 8, 3), date(2026, 8, 17), date(2026, 8, 31), date(2026, 9, 14), date(2026, 9, 28), date(2026, 10, 26)]
+
+    def test_today_is_skipped_once_done(self) -> None:
+        events = _series("Biotonne", "", [date(2026, 9, 10), date(2026, 9, 24)])
+        before = ds.build_garbage_content(events, date(2026, 9, 10), 14, today_done=False)
+        after = ds.build_garbage_content(events, date(2026, 9, 10), 14, today_done=True)
+        self.assertEqual(before["next"]["relative"], "Heute")
+        self.assertTrue(before["urgent"])
+        self.assertEqual(after["next"]["date"], date(2026, 9, 24))
+        self.assertFalse(after["urgent"])
+
+    def test_tomorrow_is_urgent_only_in_the_evening(self) -> None:
+        events = _series("Restmüll", "", [date(2026, 9, 11)])
+        day = ds.build_garbage_content(events, date(2026, 9, 10), 14, reminder_active=False)
+        evening = ds.build_garbage_content(events, date(2026, 9, 10), 14, reminder_active=True)
+        self.assertFalse(day["urgent"])
+        self.assertTrue(evening["urgent"])
+        self.assertEqual(evening["reminder"], "Morgen rausstellen")
+
+    def test_shifted_date_is_marked_with_usual_weekday(self) -> None:
+        # Vier Montage plus ein Dienstag (Feiertagsverschiebung)
+        events = _series("Biotonne", "Zuhause", self.MONDAYS + [date(2026, 10, 13)])
+        content = ds.build_garbage_content(events, date(2026, 10, 1), 30)
+        shifted = [ev for d in content["days"] for ev in d["events"] if ev["shifted_from"]]
+        self.assertEqual(len(shifted), 1)
+        self.assertEqual(shifted[0]["date"], date(2026, 10, 13))
+        self.assertEqual(shifted[0]["shifted_from"], "Montag")
+        regular = [ev for d in content["days"] for ev in d["events"] if not ev["shifted_from"]]
+        self.assertTrue(regular, "die Montage bleiben ohne Hinweis")
+
+    def test_short_series_gets_no_shift_hint(self) -> None:
+        events = _series("Sperrmüll", "", [date(2026, 9, 14), date(2026, 9, 15)])
+        content = ds.build_garbage_content(events, date(2026, 9, 10), 14)
+        self.assertTrue(all(not ev["shifted_from"] for d in content["days"] for ev in d["events"]))
+
+    def test_by_label_and_kinds(self) -> None:
+        events = (_series("Biotonne", "Hohe Straße", [date(2026, 9, 14)])
+                  + _series("Papiertonne", "Zwirleinstraße", [date(2026, 9, 12)])
+                  + _series("Gelber Sack", "Hohe Straße", [date(2026, 9, 20)]))
+        content = ds.build_garbage_content(events, date(2026, 9, 10), 14)
+        self.assertEqual([c["label"] for c in content["by_label"]], ["Hohe Straße", "Zwirleinstraße"])
+        self.assertEqual(content["by_label"][0]["next"]["date"], date(2026, 9, 14))
+        self.assertEqual(content["by_label"][1]["next"]["date"], date(2026, 9, 12))
+        kinds = {k["summary"]: (k["color"], k["icon"]) for k in content["kinds"]}
+        self.assertEqual(kinds["Gelber Sack"], ("yellow", "sack"))
+        self.assertEqual(kinds["Papiertonne"], ("blue", "paper"))
+        self.assertEqual(kinds["Biotonne"], ("green", "bin"))
+        single = ds.build_garbage_content(_series("Biotonne", "", [date(2026, 9, 14)]), date(2026, 9, 10), 14)
+        self.assertEqual(single["by_label"], [], "eine Adresse → keine Spalten")
+
+    def test_icon_classification(self) -> None:
+        self.assertEqual(ds.classify_icon("Sperrmüll auf Abruf"), "bulky")
+        self.assertEqual(ds.classify_icon("Weihnachtsbaumabfuhr"), "tree")
+        self.assertEqual(ds.classify_icon("Altpapier"), "paper")
+        self.assertEqual(ds.classify_icon("Restmüll"), "bin")
+
+
+class DiskCacheAndMissingYearTest(FetchAndLifecycleTest):
+    def test_last_good_state_survives_restart_and_is_marked_stale(self) -> None:
+        self.requested: list[str] = []
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._fake_get), \
+             patch.object(ds, "now_local", side_effect=_fixed_now):
+            self.assertIsNotNone(garbage.fetch_content(self.env))
+        cache_file = ds.CACHE_FILE
+        self.assertTrue(cache_file.exists(), "Stand wird auf Platte gesichert")
+        # Datei altern lassen (drei Cache-Perioden) und Prozess "neu starten"
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        for entry in raw.values():
+            entry["fetched_at"] = time.time() - 3 * ds.DEFAULT_CACHE_SECONDS
+        cache_file.write_text(json.dumps(raw), encoding="utf-8")
+        with ds._LOCK:
+            ds._CACHE.clear()
+            ds._DISK_LOADED = False
+
+        def failing(url, **kw):
+            raise RuntimeError("Kommune offline")
+
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=failing), \
+             patch.object(ds, "now_local", side_effect=_fixed_now):
+            content = garbage.fetch_content(self.env)
+        self.assertIsNotNone(content, "alter Stand statt leerer Kachel")
+        self.assertTrue(content["stale_since"], "Stand vom … wird gemeldet")
+        self.assertEqual(content["next"]["events"][0]["label"], "Zuhause")
+
+    def test_404_reports_missing_year_instead_of_nothing(self) -> None:
+        def not_found(url, **kw):
+            return SimpleNamespace(status_code=404, text="", raise_for_status=lambda: None)
+
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=not_found), \
+             patch.object(ds, "now_local", side_effect=_fixed_now):
+            content = garbage.fetch_content(self.env)
+            result = garbage.probe(self.env)
+        self.assertIsNotNone(content)
+        self.assertEqual(content["missing_years"], [2026])
+        self.assertIsNone(content["next"])
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("404" in line for line in result["details"]))
+
+    def test_probe_lists_next_dates_and_detected_kinds(self) -> None:
+        self.requested = []
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._fake_get), \
+             patch.object(ds, "now_local", side_effect=_fixed_now):
+            result = garbage.probe(self.env)
+        self.assertTrue(result["ok"], result)
+        self.assertIn("Nächste Termine:", result["details"])
+        self.assertIn("Erkannte Tonnen:", result["details"])
+        self.assertTrue(any("→" in line for line in result["details"]))
+
+    def test_is_urgent_follows_content(self) -> None:
+        self.requested = []
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._fake_get), \
+             patch.object(ds, "now_local", side_effect=_fixed_now):
+            self.assertFalse(garbage.is_urgent(self.env), "am Vormittag ohne Termin morgen nicht dringend")
+
+        def evening_before(*_a, **_k):
+            return datetime(2026, 9, 20, 19, 0, tzinfo=config.local_tz())   # 21.09. ist Abfuhr im Fixture
+
+        ds.clear_cache()
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._fake_get), \
+             patch.object(ds, "now_local", side_effect=evening_before):
+            self.assertTrue(garbage.is_urgent(self.env))
+            key = garbage.get_state_key(garbage.fetch_content(self.env))
+        self.assertIn("urgent", key)
 
 
 class GarbageRendererTests(unittest.TestCase):

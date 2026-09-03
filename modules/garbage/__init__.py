@@ -3,8 +3,12 @@ Müllabfuhr-Modul für PlexImageE-Ink.
 
 Idle-Modul (MODULE_PRIORITY = 105). Liest ICS-Abfuhrkalender (eine oder
 mehrere Adressen), zeigt den nächsten Abfuhrtag groß und die Termine der
-nächsten Tage als Liste. Tonnenfarben werden aus dem Terminnamen abgeleitet
-und lassen sich pro Stichwort überschreiben.
+nächsten Tage als Wochenstreifen oder Liste. Tonnenfarben werden aus dem
+Terminnamen abgeleitet und lassen sich pro Stichwort überschreiben.
+
+Am Vorabend (ab GARBAGE_REMINDER_HOUR) und am Abfuhrtag bis GARBAGE_DONE_HOUR
+ist das Modul "dringend": der Hero bekommt ein farbiges Band und das Modul
+wird in der Rotation vorgezogen bzw. im Dashboard nach oben sortiert.
 """
 
 from __future__ import annotations
@@ -44,7 +48,47 @@ SETTINGS_FIELDS: list[dict] = [
         "placeholder": "14",
         "min":         1,
         "max":         90,
-        "help":        "Wie viele Tage im Voraus die Terminliste zeigt.",
+        "help":        "Wie viele Tage im Voraus der Wochenstreifen bzw. die Terminliste zeigt.",
+    },
+    {
+        "name":        "GARBAGE_UPCOMING_STYLE",
+        "label":       "Darstellung der nächsten Tage",
+        "type":        "select",
+        "wide":        False,
+        "default":     "strip",
+        "options":     [("strip", "Wochenstreifen mit Symbolen"), ("list", "Liste mit Zeilen")],
+        "help":        "Der Streifen zeigt jeden Tag als Zelle mit Tonnen-Symbolen, die Liste eine Zeile je Abfuhrtag.",
+    },
+    {
+        "name":        "GARBAGE_LAYOUT",
+        "label":       "Mehrere Adressen",
+        "type":        "select",
+        "wide":        False,
+        "default":     "merged",
+        "options":     [("merged", "Zusammen, Adresse hinter der Tonne"), ("columns", "Eine Spalte je Adresse")],
+        "help":        "Nur relevant bei zwei oder mehr Kalendern. Spalten lohnen sich, wenn die Adressen meist verschiedene Termine haben.",
+    },
+    {
+        "name":        "GARBAGE_REMINDER_HOUR",
+        "label":       "Erinnerung ab (Uhr)",
+        "type":        "number",
+        "wide":        False,
+        "default":     "18",
+        "placeholder": "18",
+        "min":         0,
+        "max":         23,
+        "help":        "Ab dieser Uhrzeit am Vortag wird „Morgen rausstellen“ hervorgehoben und das Modul in der Rotation vorgezogen.",
+    },
+    {
+        "name":        "GARBAGE_DONE_HOUR",
+        "label":       "Erledigt ab (Uhr)",
+        "type":        "number",
+        "wide":        False,
+        "default":     "12",
+        "placeholder": "12",
+        "min":         0,
+        "max":         23,
+        "help":        "Ab dieser Uhrzeit am Abfuhrtag gilt die Tonne als geleert; das Display zeigt dann schon den nächsten Termin.",
     },
     {
         "name":        "GARBAGE_CACHE_SECONDS",
@@ -69,7 +113,7 @@ SETTINGS_FIELDS: list[dict] = [
         "value_options": [("black", "Schwarz"), ("green", "Grün"), ("yellow", "Gelb"), ("blue", "Blau"), ("red", "Rot")],
         "help": (
             "Optional. Ohne Angabe gilt die eingebaute Zuordnung: Restmüll schwarz, Bio grün, "
-            "Gelbe Tonne gelb, Papier blau, Sperrmüll rot."
+            "Gelbe Tonne gelb, Papier blau, Sperrmüll rot. „Verbindung prüfen“ zeigt, wie jeder Terminname erkannt wird."
         ),
     },
 ]
@@ -77,12 +121,19 @@ SETTINGS_FIELDS: list[dict] = [
 SETTINGS_GROUPS: list[dict] = []
 
 
+def _hour_setting(env: dict[str, str], key: str, default: int) -> int:
+    try:
+        return max(0, min(23, int(str(env.get(key, "")).strip() or default)))
+    except ValueError:
+        return default
+
+
 class GarbageModule(PlexInkModule):
     MODULE_ID          = "garbage"
     MODULE_NAME        = "Müllabfuhr"
     MODULE_DESCRIPTION = (
         "Zeigt die nächsten Abfuhrtermine aus ICS-Kalendern der Kommune – "
-        "nächster Termin groß mit Tonne, dann die Liste der kommenden Tage."
+        "nächster Termin groß mit Tonne, Erinnerung am Vorabend, dann die kommenden Tage."
     )
     MODULE_PRIORITY  = 105
     SETTINGS_FIELDS  = SETTINGS_FIELDS
@@ -101,27 +152,43 @@ class GarbageModule(PlexInkModule):
             log.error(f"GarbageModule.fetch_content: {exc}", exc_info=True)
             return None
 
+    def _render_options(self, env: dict[str, str]) -> dict:
+        layout = (env.get("GARBAGE_LAYOUT", "") or "merged").strip().lower()
+        upcoming = (env.get("GARBAGE_UPCOMING_STYLE", "") or "strip").strip().lower()
+        return {
+            "layout": layout if layout in ("merged", "columns") else "merged",
+            "upcoming": upcoming if upcoming in ("strip", "list") else "strip",
+        }
+
     def render(self, env: dict[str, str], content: Any) -> Image.Image:
         from .renderer import render_garbage_module
-        return render_garbage_module(ModuleRenderServices.from_runtime(), content)
+        return render_garbage_module(ModuleRenderServices.from_runtime(), content, **self._render_options(env))
 
     def render_tile(self, env: dict[str, str], content: Any, width: int, height: int) -> Image.Image | None:
         from .renderer import render_garbage_module
         base = ModuleRenderServices.from_runtime()
         services = ModuleRenderServices(render_width=width, render_height=height,
                                         display_theme=base.display_theme, load_font=base.load_font)
-        return render_garbage_module(services, content, compact=True)
+        return render_garbage_module(services, content, compact=True, **self._render_options(env))
 
     def should_refresh(self, env: dict[str, str]) -> bool:
         from .data_source import should_refresh_garbage
         return should_refresh_garbage()
 
+    def is_urgent(self, env: dict[str, str]) -> bool:
+        """Abfuhr heute (bis „Erledigt ab“) oder morgen ab „Erinnerung ab“."""
+        if not self.is_enabled(env):
+            return False
+        content = self.fetch_content(env)
+        return bool(content and content.get("urgent"))
+
     def get_state_key(self, content: Any) -> str:
-        # Tag + nächster Termin: neuer Tag → neues Bild ("Morgen" wird "Heute")
+        # Tag + nächster Termin + Dringlichkeit: neuer Tag oder Abend → neues Bild
         if isinstance(content, dict):
             nxt = content.get("next") or {}
             names = ",".join(ev.get("summary", "") for ev in nxt.get("events", []))
-            return f"{content.get('today', '')}:{nxt.get('date', '')}:{names}"
+            flags = ("urgent" if content.get("urgent") else "") + ("stale" if content.get("stale_since") else "")
+            return f"{content.get('today', '')}:{nxt.get('date', '')}:{names}:{flags}"
         return "garbage"
 
     def get_runtime_summary(self, env: dict[str, str]) -> dict[str, str]:
@@ -152,16 +219,53 @@ class GarbageModule(PlexInkModule):
         if nxt:
             from app.config import format_weekday_short
             d = nxt["date"]
-            names = ", ".join(ev["summary"] for ev in nxt["events"][:2])
+            names = ", ".join(sorted({ev["summary"] for ev in nxt["events"]})[:2])
             parts.append(f"nächste Abfuhr {format_weekday_short(d)} {d.day:02d}.{d.month:02d}. {names}")
+        if content and content.get("missing_years"):
+            parts.append(f"Kalender {', '.join(str(y) for y in content['missing_years'])} fehlt")
         return " · ".join(parts)
 
     def probe(self, env: dict[str, str]) -> dict:
-        from .data_source import fetch_garbage_content
+        """
+        Lädt die Kalender neu und liefert neben der Meldung Details: die
+        nächsten drei Abfuhrtage und wie jeder Terminname erkannt wird.
+        """
+        from app.config import format_weekday_short
+        from .data_source import COLOR_LABELS, ICON_LABELS, fetch_garbage_content
         content = fetch_garbage_content(True)
         if not content:
             return {"ok": False, "message": "Kalender nicht ladbar oder keine kommenden Termine"}
-        return {"ok": True, "message": f"{len(content.get('days', []))} Abfuhrtage in den nächsten {content.get('days_ahead', 14)} Tagen"}
+        details: list[str] = []
+        days = content.get("days") or []
+        nxt = content.get("next")
+        shown = days[:3] if days else ([nxt] if nxt else [])
+        if shown:
+            details.append("Nächste Termine:")
+            for day in shown:
+                per_type: dict[str, list[str]] = {}
+                for ev in day["events"]:
+                    per_type.setdefault(ev["summary"], [])
+                    if ev.get("label") and ev["label"] not in per_type[ev["summary"]]:
+                        per_type[ev["summary"]].append(ev["label"])
+                items = [name + (f" ({', '.join(labels)})" if labels else "") for name, labels in per_type.items()]
+                d = day["date"]
+                details.append(f"{format_weekday_short(d)} {d.day:02d}.{d.month:02d}. · {day['relative']} · {', '.join(items)}")
+        kinds = content.get("kinds") or []
+        if kinds:
+            details.append("Erkannte Tonnen:")
+            for k in kinds:
+                details.append(f"{k['summary']} → {COLOR_LABELS.get(k['color'], k['color'])}, {ICON_LABELS.get(k['icon'], k['icon'])}")
+        if content.get("missing_years"):
+            details.append(f"Kalender {', '.join(str(y) for y in content['missing_years'])} antwortet mit 404 – noch nicht online.")
+        if content.get("stale_since"):
+            details.append("Achtung: Die Quelle ist gerade nicht erreichbar, gezeigt wird der letzte gespeicherte Stand.")
+        if not days and content.get("missing_years"):
+            return {"ok": False, "message": "Keine Termine – der Jahreskalender ist noch nicht online", "details": details}
+        return {
+            "ok": True,
+            "message": f"{len(days)} Abfuhrtage in den nächsten {content.get('days_ahead', 14)} Tagen",
+            "details": details,
+        }
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         from .data_source import parse_sources
@@ -189,6 +293,10 @@ class GarbageModule(PlexInkModule):
         days = env.get("GARBAGE_DAYS_AHEAD", "").strip()
         if days and not days.isdigit():
             errors.append("Zeitraum (Tage): Muss eine ganze Zahl sein.")
+        for key, label in (("GARBAGE_REMINDER_HOUR", "Erinnerung ab (Uhr)"), ("GARBAGE_DONE_HOUR", "Erledigt ab (Uhr)")):
+            raw_hour = env.get(key, "").strip()
+            if raw_hour and (not raw_hour.isdigit() or int(raw_hour) > 23):
+                errors.append(f"{label}: Bitte eine Stunde von 0 bis 23 angeben.")
         return errors
 
 

@@ -80,6 +80,16 @@ def compose_dashboard(env: dict[str, str], cfg: RuntimeConfig, modules: list[Ple
     by_id = {m.MODULE_ID: m for m in modules}
     if not layout:
         return None
+    # Dringende Kacheln (z. B. Müllabfuhr morgen) nach oben, Höhen bleiben
+    urgent_ids = set()
+    for module_id, _ in layout:
+        try:
+            if by_id[module_id].is_urgent(env):
+                urgent_ids.add(module_id)
+        except Exception as exc:
+            log.warning(f"is_urgent [{module_id}]: {exc}")
+    if urgent_ids:
+        layout = [t for t in layout if t[0] in urgent_ids] + [t for t in layout if t[0] not in urgent_ids]
 
     header_h = int(64 * scale)
     gap = int(8 * scale)

@@ -21,6 +21,10 @@
 .probe { font-size: 12.5px; color: var(--muted); }
 .probe.ok { color: var(--ok); font-weight: 700; }
 .probe.bad { color: var(--danger); font-weight: 700; }
+.probe-details { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
+.probe-details .probe-head { font-weight: 700; margin-top: 6px; }
+.probe-details .probe-head:first-child { margin-top: 0; }
+.probe-details .probe-line { color: var(--muted); padding-left: 10px; }
 @media (max-width: 600px) { .mod-head { grid-template-columns: 1fr; } }
 {% endblock %}
 
@@ -126,11 +130,28 @@
         btn.disabled = false; btn.textContent = 'Speichern';
     }
 
+    /* Details unter dem Prüf-Ergebnis: Zeilen mit Doppelpunkt am Ende sind Überschriften */
+    function renderProbeDetails(out, details) {
+        var box = out.parentNode.parentNode.querySelector('.probe-details');
+        if (!box) { box = document.createElement('div'); box.className = 'probe-details'; out.parentNode.parentNode.appendChild(box); }
+        box.innerHTML = '';
+        if (!details.length) { box.hidden = true; return; }
+        box.hidden = false;
+        details.forEach(function (line) {
+            var el = document.createElement('div');
+            var heading = /:$/.test(line);
+            el.className = heading ? 'probe-head' : 'probe-line';
+            el.textContent = line;
+            box.appendChild(el);
+        });
+    }
+
     async function probe(id, btn, out) {
         btn.disabled = true; btn.textContent = 'Prüft …'; out.textContent = ''; out.className = 'probe';
         try {
             var r = await ui.json('/api/probe/' + encodeURIComponent(id), { method: 'POST' });
             out.textContent = r.message; out.className = 'probe ' + (r.ok ? 'ok' : 'bad');
+            renderProbeDetails(out, r.details || []);
         } catch (e) { out.textContent = 'Prüfung fehlgeschlagen: ' + e.message; out.className = 'probe bad'; }
         btn.disabled = false; btn.textContent = 'Verbindung prüfen';
     }

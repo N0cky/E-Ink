@@ -317,8 +317,18 @@ einen Status-Chip, auf der Inhalte-Seite eine Zusammenfassung und einen Knopf "P
   Standard: aus `get_health_status()` abgeleitet (`configured`, `ok`).
 - `summarize(env)` → ein Satz fuer die eingeklappte Karte ("Giessen · UV Frankfurt").
   Standard: die Werte aus `get_runtime_summary()`.
-- `probe(env)` → `{"ok": bool, "message": str}`, ruft die Quelle einmal ab.
-  Standard: `fetch_content()` und "Daten vorhanden" / "keine Daten".
+- `probe(env)` → `{"ok": bool, "message": str, "details": [str, ...]}`, ruft die Quelle einmal ab.
+  Standard: `fetch_content()` und "Daten vorhanden" / "keine Daten". `details` ist optional
+  und erscheint als Kasten unter dem Pruef-Ergebnis; Zeilen mit Doppelpunkt am Ende werden
+  als Ueberschrift gesetzt (die Muellabfuhr listet so die naechsten Termine und die erkannten Tonnen).
+
+### `is_urgent(self, env)`
+
+`True`, wenn das Modul gerade etwas Zeitkritisches zeigt (Muellabfuhr: morgen frueh ab der
+eingestellten Abendstunde, oder heute bis zur "Erledigt"-Stunde). Dringende Idle-Module werden
+in der Rotation vor jedes andere Modul geschoben (`[Muell, Wetter, Muell, News]`) und im
+Dashboard nach oben sortiert; die Kachelhoehen bleiben. Standard: `False`. Der Hook wird bei
+jedem Render-Durchlauf gefragt und muss deshalb aus dem Cache antworten.
 
 Prioritaetsmodule setzen zusaetzlich `ENABLED_KEY` (z. B. `"PLEX_MODULE_ENABLED"`), damit die
 Anzeige-Seite sie ueber denselben Schalter ein- und ausschalten kann wie Idle-Module.

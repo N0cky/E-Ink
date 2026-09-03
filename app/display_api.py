@@ -463,4 +463,9 @@ def probe_module(module_id: str) -> dict[str, Any]:
     if mod is None:
         raise LookupError(module_id)
     result = _safe(lambda: mod.probe(get_settings_values()), {"ok": False, "message": "Prüfung fehlgeschlagen"})
-    return {"ok": bool(result.get("ok")), "message": str(result.get("message", ""))}
+    details = result.get("details") or []
+    return {
+        "ok": bool(result.get("ok")),
+        "message": str(result.get("message", "")),
+        "details": [str(d) for d in details if str(d).strip()][:40],
+    }

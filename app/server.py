@@ -436,9 +436,10 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
     # ── 2b. Idle-Module in Rotation (MODULE_PRIORITY >= 10) ──────────────────
     if enabled_idle:
         slot = int(time.time() // rotation_seconds)
+        sequence = _rotation_sequence(enabled_idle, env)
 
-        for offset in range(len(enabled_idle)):
-            mod = enabled_idle[(slot + offset) % len(enabled_idle)]
+        for offset in range(len(sequence)):
+            mod = sequence[(slot + offset) % len(sequence)]
             try:
                 content = mod.fetch_content(env)
             except Exception as exc:
@@ -466,6 +467,31 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
             log.error(f"render placeholder: {exc}", exc_info=True)
             return last_state_key
     return "__no_content__"
+
+
+def _rotation_sequence(enabled_idle: list, env: dict[str, str]) -> list:
+    """
+    Reihenfolge der Idle-Rotation. Dringende Module (is_urgent) kommen vor
+    jedes andere Modul: [Müll, Wetter, Müll, News] – so ist die Erinnerung
+    jedes zweite Bild da, ohne den Rest ganz zu verdrängen.
+    """
+    urgent: list = []
+    for mod in enabled_idle:
+        try:
+            if mod.is_urgent(env):
+                urgent.append(mod)
+        except Exception as exc:
+            log.warning(f"is_urgent [{mod.MODULE_ID}]: {exc}")
+    if not urgent:
+        return list(enabled_idle)
+    rest = [m for m in enabled_idle if m not in urgent]
+    if not rest:
+        return urgent
+    sequence: list = []
+    for mod in rest:
+        sequence.extend(urgent)
+        sequence.append(mod)
+    return sequence
 
 
 def _dashboard_modules(enabled_idle: list, cfg) -> list:
