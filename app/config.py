@@ -163,6 +163,31 @@ SETTINGS_FIELDS: list[dict] = [
             "bleibt das alte Bild stehen – mit Uhrzeit erkennt man das sofort. Das Dashboard hat die Angabe immer."
         ),
     },
+    {
+        "name":    "PANEL_CLEAN_INTERVAL_DAYS",
+        "label":   "Panel reinigen alle (Tage)",
+        "type":    "number",
+        "section": "framework",
+        "wide":    False,
+        "default": "14",
+        "min":     0,
+        "max":     365,
+        "help":    (
+            "E-Ink-Panels bilden mit der Zeit Geisterbilder. Das Gerät fährt dann nachts einmal Weiß und Schwarz "
+            "durch und lädt das Bild neu (rund 90 Sekunden). 0 schaltet die Reinigung aus."
+        ),
+    },
+    {
+        "name":    "PANEL_CLEAN_HOUR",
+        "label":   "Reinigung um (Uhr)",
+        "type":    "number",
+        "section": "framework",
+        "wide":    False,
+        "default": "3",
+        "min":     0,
+        "max":     23,
+        "help":    "Stunde, in der die Reinigung fällig wird – das Gerät macht sie beim ersten Aufwachen in dieser Stunde.",
+    },
     # ── Lokalisierung ────────────────────────────────────────────────────────
     {
         "name":        "TIMEZONE",
@@ -317,6 +342,11 @@ SETTINGS_GROUPS: list[dict] = [
         ],
     },
     {
+        "title":  "Panelpflege",
+        "desc":   "Regelmäßiger Reinigungslauf gegen Geisterbilder auf dem E-Ink-Panel.",
+        "fields": ["PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR"],
+    },
+    {
         "title":  "Lokalisierung",
         "desc":   "Zeitzone für Uhrzeiten und lokale Daten.",
         "fields": ["TIMEZONE"],
@@ -456,6 +486,8 @@ class RuntimeConfig:
     display_theme:      str  = "dark"
     output_format:      str  = "png"
     show_render_time:   bool = False
+    panel_clean_interval_days: int = 14
+    panel_clean_hour:   int  = 3
     render_width:       int  = 1600
     render_height:      int  = 1200
     timezone:           str  = "Europe/Berlin"
@@ -691,6 +723,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     refresh_interval = _parse_int(settings, "REFRESH_INTERVAL", 60, 10, 3600)
     output_format = get_env_value(settings, "OUTPUT_FORMAT", "png")
     show_render_time = parse_bool_env(settings.get("SHOW_RENDER_TIME"), False)
+    panel_clean_interval_days = _parse_int(settings, "PANEL_CLEAN_INTERVAL_DAYS", 14, 0, 365)
+    panel_clean_hour = _parse_int(settings, "PANEL_CLEAN_HOUR", 3, 0, 23)
     display_theme = get_env_value(settings, "DISPLAY_THEME", "dark").strip().lower()
     if display_theme not in AVAILABLE_THEMES:
         display_theme = "dark"
@@ -731,6 +765,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "DISPLAY_THEME": as_env_value(display_theme),
         "OUTPUT_FORMAT": as_env_value(output_format),
         "SHOW_RENDER_TIME": as_env_value(show_render_time),
+        "PANEL_CLEAN_INTERVAL_DAYS": as_env_value(panel_clean_interval_days),
+        "PANEL_CLEAN_HOUR": as_env_value(panel_clean_hour),
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
@@ -752,6 +788,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         display_theme=display_theme,
         output_format=output_format,
         show_render_time=show_render_time,
+        panel_clean_interval_days=panel_clean_interval_days,
+        panel_clean_hour=panel_clean_hour,
         render_width=render_w,
         render_height=render_h,
         timezone=timezone_name,

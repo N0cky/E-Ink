@@ -34,7 +34,8 @@ DISPLAY_MANAGED_KEYS = {
     "NIGHT_MODE_ENABLED", "NIGHT_MODE_START", "NIGHT_MODE_END",
     "NIGHT_MODE_INTERVAL_MINUTES", "NIGHT_MODE_IDLE_BEHAVIOR", "NIGHT_MODE_FIXED_MODULE",
 }
-DEVICE_KEYS = {"RENDER_WIDTH", "RENDER_HEIGHT", "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT", "SHOW_RENDER_TIME"}
+DEVICE_KEYS = {"RENDER_WIDTH", "RENDER_HEIGHT", "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT", "SHOW_RENDER_TIME",
+               "PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR"}
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +118,9 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
 
     night_fixed = _registry.get_module_by_id(cfg.night_mode_fixed_module_id)
 
-    from app.device import firmware_info, rssi_quality
+    from app.device import firmware_info, last_clean_at, rssi_quality, test_banner_pending
     fw = firmware_info()
+    last_clean = last_clean_at()
     device_fw = str(last_ack.get("fw_version", "") or "")
     rssi = last_ack.get("rssi")
     rssi_label, rssi_state = rssi_quality(rssi if isinstance(rssi, int) else None)
@@ -133,6 +135,12 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
             # Update steht an, wenn eine Datei bereitliegt und das Gerät eine andere Version meldet
             "update_pending": bool(fw) and bool(device_fw) and fw["version"] != device_fw,
             "device_supports_ota": bool(device_fw),
+        },
+        "panel": {
+            "clean_interval_days": cfg.panel_clean_interval_days,
+            "clean_hour":          cfg.panel_clean_hour,
+            "last_clean_at":       last_clean.isoformat() if last_clean else "",
+            "test_banner_pending": test_banner_pending(),
         },
         "layout":           cfg.idle_layout,
         "rotation_seconds": cfg.idle_module_rotation_seconds,

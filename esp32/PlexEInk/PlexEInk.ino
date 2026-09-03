@@ -10,20 +10,26 @@
  *
  * Ablauf je Wake-Zyklus:
  *   1. WiFi verbinden
- *   2. GET /meta.json → Hash, next_wake_sec, kompaktes Bild, bereitgestellte Firmware
+ *   2. GET /meta.json → Hash, next_wake_sec, kompaktes Bild, Firmware, Uhrzeit, Reinigung
  *      (Fallback: GET /hash)
- *   3. Laufende Firmware als gültig markieren (Rollback-Schutz nach OTA)
+ *   3. Laufende Firmware bestätigen (Rollback-Schutz nach OTA)
  *   4. Firmware-Version weicht ab? → /firmware.bin per OTA einspielen, Neustart
- *   5. Hash unverändert? → ACK "unchanged", schlafen
- *   6. GET /current.epd (4 bpp, direkt ins Display) oder /current.bmp (24 Bit, konvertieren)
- *   7. Bild anzeigen, ACK mit Ergebnis, Gesundheitsdaten und Logzeilen
- *   8. Deep Sleep
+ *   5. Reinigung fällig? → Panel weiß/schwarz durchfahren, Bild danach neu
+ *   6. Hash unverändert? → ACK "unchanged", schlafen
+ *   7. GET /current.epd (4 bpp, direkt ins Display) oder /current.bmp (24 Bit, konvertieren)
+ *      Das Bild wird zusätzlich im Flash (FFat) abgelegt.
+ *   8. Bild anzeigen, ACK mit Ergebnis, Gesundheitsdaten und Logzeilen
+ *   9. Deep Sleep
+ *
+ * Ohne WLAN oder Server: nach OFFLINE_AFTER_FAILS Zyklen wird das letzte Bild
+ * aus dem Flash mit einem schwarzen Balken "Keine Verbindung … seit HH:MM"
+ * neu gezeichnet. Sobald der Server wieder da ist, kommt das normale Bild.
  *
  * Board-Einstellungen (Arduino IDE):
  *   Board:            ESP32S3 Dev Module
  *   PSRAM:            OPI PSRAM
  *   Flash Size:       16MB
- *   Partition Scheme: 16M Flash (3MB APP/9.9MB FATFS)   ← zwei App-Slots, OTA-fähig
+ *   Partition Scheme: 16M Flash (3MB APP/9.9MB FATFS)   ← zwei App-Slots, OTA-fähig, FFat für Bilder
  */
 
 #include <Arduino.h>
@@ -32,31 +38,47 @@
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 #include <Preferences.h>
+#include <FFat.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
+#include <sys/time.h>
 #include <esp_sleep.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include "config.h"
 #include "epd.h"
+#include "font_data.h"
+#include "text_draw.h"
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 // Der Server liest die Version aus dem Marker in der .bin (Gerät-Seite → Firmware).
 // Der Marker wird im Boot-Log referenziert, sonst wirft der Linker ihn weg.
 #ifdef OTA_SELFTEST_FAIL
-#define FIRMWARE_VERSION "1.1.6-selftest"
+#define FIRMWARE_VERSION "1.2.0-selftest"
 #else
-#define FIRMWARE_VERSION "1.1.6"
+#define FIRMWARE_VERSION "1.2.0"
 #endif
 #define FW_MARKER_PREFIX "PLEXEINK_FW_VERSION="
 const char FW_VERSION_MARKER[] __attribute__((used)) = FW_MARKER_PREFIX FIRMWARE_VERSION;
 static const char* firmwareVersionFromMarker() { return FW_VERSION_MARKER + sizeof(FW_MARKER_PREFIX) - 1; }
 
-// ─── RTC-Memory (überlebt Deep Sleep) ────────────────────────────────────────
+// ─── RTC-Memory (überlebt Deep Sleep, gleiche Firmware) ──────────────────────
 RTC_DATA_ATTR char     storedHash[33] = {0};
 RTC_DATA_ATTR uint32_t bootCount      = 0;
 RTC_DATA_ATTR char     lastError[96]  = {0};   // Fehler eines Zyklus ohne ACK (z. B. WLAN weg)
+RTC_DATA_ATTR uint32_t failCount      = 0;     // Zyklen in Folge ohne Serverkontakt
+RTC_DATA_ATTR int64_t  firstFailEpoch = 0;     // UTC-Sekunden des ersten Fehlzyklus (0 = Uhr unbekannt)
+RTC_DATA_ATTR uint8_t  failWasWifi    = 0;
+RTC_DATA_ATTR uint8_t  bannerShown    = 0;     // Offline-Balken steht auf dem Display
+RTC_DATA_ATTR uint8_t  setupShown     = 0;
+RTC_DATA_ATTR int32_t  tzOffsetSec    = 0;     // vom Server, für "seit HH:MM"
+
+static const uint32_t OFFLINE_AFTER_FAILS = 3;         // 3 × 5 min = 15 min
+static const int64_t  EPOCH_KNOWN_MIN = 1600000000LL;  // Uhrzeiten davor gelten als "nicht gestellt"
+static const char*    LAST_IMAGE_PATH = "/last.epd";   // wie /current.epd (Header + Nutzdaten)
+static const char*    LAST_META_PATH  = "/last.txt";   // "hash\nepoch\n"
 
 // ─── OTA-Gedächtnis im Flash (NVS) ───────────────────────────────────────────
 // Rollback-Schutz in der Firmware selbst (der Arduino-Bootloader lässt eine
@@ -66,8 +88,8 @@ RTC_DATA_ATTR char     lastError[96]  = {0};   // Fehler eines Zyklus ohne ACK (
 //   - zwei Starts ohne Serverkontakt → Update.rollBack() auf die alte Partition
 //   - die alte Firmware sieht rolledBack, meldet es und lädt diese Version nicht erneut
 // Bewusst NVS statt RTC-Speicher: RTC-Variablen liegen je Firmware-Build an anderen
-// Adressen, die neue Firmware würde die Notiz der alten nicht finden (so passiert
-// mit 1.1.4). NVS ist adressunabhängig und überlebt auch Stromausfall.
+// Adressen, die neue Firmware würde die Notiz der alten nicht finden. NVS ist
+// adressunabhängig und überlebt auch Stromausfall.
 struct OtaMemory {
     char     targetVersion[32];
     uint8_t  pendingVerify;
@@ -107,6 +129,7 @@ bool verifyRollbackLater() { return true; }
 
 static const uint32_t HTTP_STREAM_IDLE_TIMEOUT_MS = 10000;
 static const size_t   EPD_HEADER_SIZE = 16;
+static const size_t   EPD_BUF_SIZE = (size_t)EPD_HEIGHT * EPD_ROW_BYTES;     // 960 000
 static const size_t   DEVICE_LOG_MAX_CHARS = 3000;
 
 // ─── Zyklus-Zustand ──────────────────────────────────────────────────────────
@@ -117,6 +140,10 @@ struct Meta {
     String firmwareVersion;
     String firmwareMd5;
     String firmwareUrl;
+    int64_t epoch = 0;
+    int32_t tzOffsetSec = 0;
+    bool cleanDue = false;
+    bool showOfflineTest = false;
 };
 
 static String   g_log;                 // Logzeilen dieses Zyklus (gehen mit dem ACK zum Server)
@@ -125,6 +152,9 @@ static uint32_t g_downloadMs = 0;
 static uint32_t g_refreshMs  = 0;
 static String   g_imageFormat;
 static String   g_error;
+static uint8_t  g_cleaned = 0;
+static uint32_t g_offlineSeconds = 0;
+static bool     g_storageOk = false;
 
 // ─── Vorwärtsdeklarationen ───────────────────────────────────────────────────
 void     logf(const char* fmt, ...);
@@ -135,20 +165,28 @@ bool     httpGetBinary(const String& url, uint8_t* buf, size_t bufSize, size_t& 
 bool     httpPostJson(const String& url, const String& body, int& outCode);
 bool     fetchMeta(Meta& meta);
 bool     performOta(const Meta& meta);
-bool     fetchAndDisplayEpd(const String& url);
-bool     fetchAndDisplayBmp();
+bool     fetchAndDisplayEpd(const String& url, const char* hash);
+bool     fetchAndDisplayBmp(const char* hash);
 bool     sendAck(const char* result, const char* hash, const char* fwTarget = nullptr);
 void     goSleep(uint32_t seconds);
 uint8_t  rgbToSpectra6(uint8_t r, uint8_t g, uint8_t b);
 bool     hasUnsetConfig();
 bool     parsePositiveUIntField(const String& json, const char* key, uint32_t& outValue);
 bool     parseStringField(const String& json, const char* key, String& outValue);
+bool     parseBoolField(const String& json, const char* key, bool& outValue);
 bool     parseBmpHeader(const uint8_t* buf, size_t bufLen,
                         uint32_t& pixelOffset, int32_t& width,
                         int32_t& height, uint16_t& bpp, uint32_t& rowStride);
 static void setError(const char* text);
 static const char* wakeReasonText();
 static String jsonEscape(const String& in);
+static void onCycleFailed(bool wifiFailed);
+static void showOfflineBanner(bool wifiFailed, bool test);
+static void showSetupPage();
+static void runCleanCycle();
+static void saveLastImage(const uint8_t* payload, const char* hash);
+static String localTimeText(int64_t epochUtc);
+static int64_t nowEpoch();
 
 // ════════════════════════════════════════════════════════════════════════════
 void setup() {
@@ -160,7 +198,6 @@ void setup() {
     logf("PSRAM frei: %u KB", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
     {
         // Welcher App-Slot laeuft, und in welchem OTA-Zustand sind beide Slots?
-        // (new/pending/valid/aborted – so sieht man im Geraetelog, ob der Rollback-Schutz greift)
         const esp_partition_t* part = esp_ota_get_running_partition();
         const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
         auto stateName = [](const esp_partition_t* p) -> const char* {
@@ -208,7 +245,6 @@ void setup() {
 
 #ifdef OTA_SELFTEST_FAIL
     // Selbsttest des Rollbacks: diese Firmware erreicht den Server absichtlich nie.
-    // Sie schläft kurz, wacht auf, und nach zwei Starts muss der Rollback greifen.
     // Notbremse unabhängig vom NVS-Gedächtnis: nach sechs Starts in jedem Fall zurück.
     {
         static RTC_DATA_ATTR uint32_t selftestBoots = 0;
@@ -225,19 +261,25 @@ void setup() {
     }
 #endif
 
+    // ── Bildspeicher im Flash (FFat-Partition, 9,9 MB) ───────────────────────
+    g_storageOk = FFat.begin(true);   // formatiert beim ersten Mal
+    if (!g_storageOk) logf("[WARN] Flash-Dateisystem nicht verfuegbar - kein Offline-Bild");
+
     if (hasUnsetConfig()) {
         logf("[ERR] Konfiguration unvollstaendig. Bitte config.private.h oder config.example.h anpassen.");
         setError("Konfiguration unvollstaendig");
+        if (!setupShown) { showSetupPage(); setupShown = 1; }
         goSleep(POLL_FALLBACK_SEC);
     }
 
     if (!connectWiFi()) {
         logf("[WARN] WiFi failed -> Fallback-Sleep");
         setError("WLAN nicht erreichbar");
+        onCycleFailed(true);
         goSleep(POLL_FALLBACK_SEC);
     }
 
-    // ── Meta (Hash, Wake, Bildformat, Firmware) ──────────────────────────────
+    // ── Meta (Hash, Wake, Bildformat, Firmware, Uhrzeit, Reinigung) ──────────
     Meta meta;
     if (!fetchMeta(meta)) {
         // Alter Server ohne meta.json? Notfalls nur den Hash holen.
@@ -246,10 +288,34 @@ void setup() {
         if (meta.hash.isEmpty()) {
             logf("[WARN] Server nicht erreichbar (/meta.json und /hash)");
             setError("Server nicht erreichbar");
+            onCycleFailed(false);
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
             goSleep(POLL_FALLBACK_SEC);
         }
     }
     logf("[Hash] server=%s lokal=%s", meta.hash.c_str(), storedHash[0] ? storedHash : "(leer)");
+
+    // ── Uhr vom Server stellen ───────────────────────────────────────────────
+    if (meta.epoch > EPOCH_KNOWN_MIN) {
+        struct timeval tv = { (time_t)meta.epoch, 0 };
+        settimeofday(&tv, nullptr);
+        tzOffsetSec = meta.tzOffsetSec;
+    }
+
+    // ── Wieder online? Offline-Dauer merken, Balken vom Display holen ────────
+    bool wasOffline = failCount > 0;
+    if (wasOffline) {
+        if (firstFailEpoch > EPOCH_KNOWN_MIN && nowEpoch() > firstFailEpoch)
+            g_offlineSeconds = (uint32_t)(nowEpoch() - firstFailEpoch);
+        logf("[Net] Wieder erreichbar nach %lu Fehlzyklen (%lu s)", (unsigned long)failCount, (unsigned long)g_offlineSeconds);
+        failCount = 0;
+        firstFailEpoch = 0;
+    }
+    if (bannerShown) {
+        bannerShown = 0;
+        storedHash[0] = 0;      // Balken steht auf dem Panel -> Bild in jedem Fall neu zeichnen
+    }
 
     // ── Rollback-Schutz: WLAN und Server funktionieren, diese Firmware ist gut ──
     const esp_partition_t* running = esp_ota_get_running_partition();
@@ -267,7 +333,6 @@ void setup() {
     }
 
     // ── Wurde die letzte Firmware zurückgerollt? ─────────────────────────────
-    // Dann sagt die gemerkte Zielversion, welche Version wir nicht noch einmal laden.
     String rejectedVersion;
     const esp_partition_t* other = esp_ota_get_next_update_partition(NULL);
     esp_ota_img_states_t otherState;
@@ -299,8 +364,16 @@ void setup() {
         }
     }
 
+    // ── Panelreinigung ───────────────────────────────────────────────────────
+    if (meta.cleanDue) {
+        runCleanCycle();
+        g_cleaned = 1;
+        storedHash[0] = 0;      // danach das Bild in jedem Fall neu
+    }
+
     // ── Hash unverändert → nur melden und schlafen ───────────────────────────
-    if (meta.hash == String(storedHash)) {
+    bool shown = false;
+    if (meta.hash == String(storedHash) && !meta.showOfflineTest) {
         logf("[Hash] Unveraendert -> Sleep %lu s", (unsigned long)meta.nextWakeSec);
         if (ACK_ENABLED) sendAck(g_error.isEmpty() ? "unchanged" : "error", storedHash);
         WiFi.disconnect(true);
@@ -309,28 +382,35 @@ void setup() {
     }
 
     // ── Neues Bild laden und anzeigen ────────────────────────────────────────
-    logf("[Hash] Geaendert -> Bild laden...");
-    bool shown = false;
-    if (PREFER_COMPACT_IMAGE && !meta.epdUrl.isEmpty()) {
-        shown = fetchAndDisplayEpd(meta.epdUrl);
-        if (!shown) logf("[WARN] Kompaktes Bild fehlgeschlagen, versuche BMP");
-    }
-    if (!shown) {
-        shown = fetchAndDisplayBmp();
-    }
-
-    if (shown) {
-        meta.hash.toCharArray(storedHash, sizeof(storedHash));
-        logf("[OK] Bild aktualisiert (%s, Download %lu ms, Anzeige %lu ms)",
-             g_imageFormat.c_str(), (unsigned long)g_downloadMs, (unsigned long)g_refreshMs);
-        // Ein gemerkter Rollback wird als Fehler gemeldet, damit er auf der Geraet-Seite steht
-        if (ACK_ENABLED && !sendAck(g_error.isEmpty() ? "updated" : "error", storedHash)) {
-            logf("[WARN] ACK nicht bestaetigt");
+    if (meta.hash != String(storedHash)) {
+        logf("[Hash] Geaendert -> Bild laden...");
+        if (PREFER_COMPACT_IMAGE && !meta.epdUrl.isEmpty()) {
+            shown = fetchAndDisplayEpd(meta.epdUrl, meta.hash.c_str());
+            if (!shown) logf("[WARN] Kompaktes Bild fehlgeschlagen, versuche BMP");
+        }
+        if (!shown) {
+            shown = fetchAndDisplayBmp(meta.hash.c_str());
+        }
+        if (shown) {
+            meta.hash.toCharArray(storedHash, sizeof(storedHash));
+            logf("[OK] Bild aktualisiert (%s, Download %lu ms, Anzeige %lu ms)",
+                 g_imageFormat.c_str(), (unsigned long)g_downloadMs, (unsigned long)g_refreshMs);
+        } else {
+            logf("[ERR] Bild konnte nicht angezeigt werden");
+            if (g_error.isEmpty()) g_error = "Bild konnte nicht geladen werden";
         }
     } else {
-        logf("[ERR] Bild konnte nicht angezeigt werden");
-        if (g_error.isEmpty()) g_error = "Bild konnte nicht geladen werden";
-        if (ACK_ENABLED) sendAck("error", storedHash);
+        shown = true;
+    }
+
+    // ── Probe des Offline-Hinweises (von der Gerät-Seite angefordert) ────────
+    if (meta.showOfflineTest) {
+        showOfflineBanner(false, true);
+        bannerShown = 1;        // naechster Zyklus zeichnet das normale Bild wieder
+        if (ACK_ENABLED) sendAck("test", storedHash);
+    } else if (ACK_ENABLED) {
+        const char* result = !shown ? "error" : (g_error.isEmpty() ? "updated" : "error");
+        if (!sendAck(result, storedHash)) logf("[WARN] ACK nicht bestaetigt");
     }
 
     WiFi.disconnect(true);
@@ -342,7 +422,7 @@ void loop() {}
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Log
+//  Log, Zeit, Fehler
 // ════════════════════════════════════════════════════════════════════════════
 void logf(const char* fmt, ...) {
     char buf[256];
@@ -361,6 +441,21 @@ static void setError(const char* text) {
     strncpy(lastError, text, sizeof(lastError) - 1);
     lastError[sizeof(lastError) - 1] = 0;
     g_error = text;
+}
+
+static int64_t nowEpoch() {
+    return (int64_t)time(nullptr);
+}
+
+// "HH:MM" in Serverzeitzone, leer wenn die Uhr nie gestellt wurde
+static String localTimeText(int64_t epochUtc) {
+    if (epochUtc < EPOCH_KNOWN_MIN) return String();
+    time_t local = (time_t)(epochUtc + tzOffsetSec);
+    struct tm tmv;
+    gmtime_r(&local, &tmv);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    return String(buf);
 }
 
 static const char* wakeReasonText() {
@@ -389,6 +484,130 @@ static String jsonEscape(const String& in) {
         }
     }
     return out;
+}
+
+// Zyklus ohne Serverkontakt: zählen, ab der Schwelle den Offline-Balken zeigen
+static void onCycleFailed(bool wifiFailed) {
+    failCount++;
+    failWasWifi = wifiFailed ? 1 : 0;
+    if (firstFailEpoch == 0 && nowEpoch() > EPOCH_KNOWN_MIN) firstFailEpoch = nowEpoch();
+    logf("[Net] Fehlzyklus %lu von %lu (%s)", (unsigned long)failCount, (unsigned long)OFFLINE_AFTER_FAILS,
+         wifiFailed ? "WLAN" : "Server");
+    if (failCount >= OFFLINE_AFTER_FAILS && !bannerShown) {
+        showOfflineBanner(wifiFailed, false);
+        bannerShown = 1;
+    }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Statusbilder: Offline-Balken, Einrichtung, Reinigung
+// ════════════════════════════════════════════════════════════════════════════
+
+// Letztes Bild aus dem Flash in den Framebuffer laden (true bei Erfolg)
+static bool loadLastImage(uint8_t* fb, int64_t& outEpoch) {
+    outEpoch = 0;
+    if (!g_storageOk || !FFat.exists(LAST_IMAGE_PATH)) return false;
+    File f = FFat.open(LAST_IMAGE_PATH, FILE_READ);
+    if (!f) return false;
+    uint8_t header[EPD_HEADER_SIZE];
+    bool ok = f.read(header, EPD_HEADER_SIZE) == EPD_HEADER_SIZE && memcmp(header, "PLX6", 4) == 0
+           && f.read(fb, EPD_BUF_SIZE) == EPD_BUF_SIZE;
+    f.close();
+    if (!ok) return false;
+    File m = FFat.open(LAST_META_PATH, FILE_READ);
+    if (m) {
+        String hash = m.readStringUntil('\n');
+        String epochStr = m.readStringUntil('\n');
+        m.close();
+        outEpoch = atoll(epochStr.c_str());
+    }
+    return true;
+}
+
+static void saveLastImage(const uint8_t* payload, const char* hash) {
+    if (!g_storageOk) return;
+    uint32_t t = millis();
+    File f = FFat.open(LAST_IMAGE_PATH, FILE_WRITE);
+    if (!f) { logf("[WARN] Bild konnte nicht im Flash gespeichert werden"); return; }
+    uint8_t header[EPD_HEADER_SIZE] = {'P', 'L', 'X', '6', 1, 4,
+        (uint8_t)(EPD_WIDTH & 0xFF), (uint8_t)(EPD_WIDTH >> 8), (uint8_t)(EPD_HEIGHT & 0xFF), (uint8_t)(EPD_HEIGHT >> 8),
+        (uint8_t)(EPD_BUF_SIZE & 0xFF), (uint8_t)((EPD_BUF_SIZE >> 8) & 0xFF), (uint8_t)((EPD_BUF_SIZE >> 16) & 0xFF), (uint8_t)((EPD_BUF_SIZE >> 24) & 0xFF),
+        0, 0};
+    bool ok = f.write(header, EPD_HEADER_SIZE) == EPD_HEADER_SIZE;
+    // in Stücken schreiben, das ist auf FAT deutlich schneller als ein Riesenblock
+    for (size_t off = 0; ok && off < EPD_BUF_SIZE; off += 32768) {
+        size_t n = min((size_t)32768, EPD_BUF_SIZE - off);
+        ok = f.write(payload + off, n) == n;
+    }
+    f.close();
+    File m = FFat.open(LAST_META_PATH, FILE_WRITE);
+    if (m) { m.printf("%s\n%lld\n", hash, (long long)nowEpoch()); m.close(); }
+    logf("[Flash] Bild %s (%lu ms)", ok ? "gesichert" : "NICHT gesichert", (unsigned long)(millis() - t));
+}
+
+// Schwarzer Balken oben auf dem letzten Bild (oder auf Weiß, wenn keins da ist)
+static void showOfflineBanner(bool wifiFailed, bool test) {
+    uint8_t* fb = (uint8_t*)heap_caps_malloc(EPD_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!fb) { logf("[ERR] PSRAM fuer Offline-Bild fehlt"); return; }
+    int64_t imageEpoch = 0;
+    bool haveImage = loadLastImage(fb, imageEpoch);
+    if (!haveImage) fbFill(fb, EPD_COLOR_WHITE);
+
+    const int barH = 120;
+    fbFillRect(fb, 0, 0, EPD_WIDTH, barH, EPD_COLOR_BLACK);
+    String since = localTimeText(test ? nowEpoch() : firstFailEpoch);
+    String line1 = String(test ? "Probe: " : "") + (wifiFailed ? "Kein WLAN" : "Keine Verbindung zum Server");
+    if (since.length()) line1 += " seit " + since;
+    fbDrawText(fb, 40, 14, line1.c_str(), FONT_L, EPD_COLOR_WHITE);
+
+    String line2;
+    String shownAt = localTimeText(imageEpoch);
+    if (haveImage && shownAt.length()) line2 += "Anzeige vom " + shownAt + "  ·  ";
+    else if (!haveImage) line2 += "Kein gespeichertes Bild  ·  ";
+    line2 += String("Firmware ") + FIRMWARE_VERSION;
+    if (!wifiFailed && WiFi.status() == WL_CONNECTED) line2 += "  ·  " + WiFi.localIP().toString();
+    fbDrawText(fb, 40, 74, line2.c_str(), FONT_S, EPD_COLOR_WHITE);
+
+    logf("[EPD] Offline-Hinweis: %s", line1.c_str());
+    uint32_t t = millis();
+    EPD_Init();
+    EPD_Display(fb);
+    g_refreshMs = millis() - t;
+    heap_caps_free(fb);
+}
+
+// Weiße Seite mit Hinweis, wenn WLAN oder Server nicht konfiguriert sind
+static void showSetupPage() {
+    uint8_t* fb = (uint8_t*)heap_caps_malloc(EPD_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!fb) return;
+    fbFill(fb, EPD_COLOR_WHITE);
+    fbFillRect(fb, 0, 0, EPD_WIDTH, 120, EPD_COLOR_BLACK);
+    fbDrawText(fb, 40, 14, "PlexEInk – nicht eingerichtet", FONT_L, EPD_COLOR_WHITE);
+    fbDrawText(fb, 40, 74, (String("Firmware ") + FIRMWARE_VERSION).c_str(), FONT_S, EPD_COLOR_WHITE);
+    int y = 200;
+    const char* lines[] = {
+        "WLAN und Server-Adresse fehlen.",
+        "In config.private.h eintragen:",
+        "WIFI_SSID, WIFI_PASSWORD, SERVER_BASE_URL",
+        "und die Firmware neu aufspielen.",
+    };
+    for (const char* l : lines) { fbDrawText(fb, 60, y, l, FONT_L, EPD_COLOR_BLACK); y += 70; }
+    logf("[EPD] Einrichtungshinweis angezeigt");
+    EPD_Init();
+    EPD_Display(fb);
+    heap_caps_free(fb);
+    storedHash[0] = 0;
+}
+
+// Geisterbilder loswerden: einmal Schwarz, einmal Weiß, das Bild kommt danach neu
+static void runCleanCycle() {
+    logf("[EPD] Reinigung: Schwarz, Weiss");
+    uint32_t t = millis();
+    EPD_Init();
+    EPD_Clear(EPD_COLOR_BLACK);
+    EPD_Clear(EPD_COLOR_WHITE);
+    logf("[EPD] Reinigung fertig (%lu ms)", (unsigned long)(millis() - t));
 }
 
 
@@ -586,6 +805,37 @@ bool parsePositiveUIntField(const String& json, const char* key, uint32_t& outVa
     return true;
 }
 
+// Ganzzahl mit Vorzeichen, z. B. "tz_offset_sec": -3600
+static bool parseIntField(const String& json, const char* key, int64_t& outValue) {
+    String quotedKey = String("\"") + key + "\"";
+    int keyPos = json.indexOf(quotedKey);
+    if (keyPos < 0) return false;
+    int colonPos = json.indexOf(':', keyPos + quotedKey.length());
+    if (colonPos < 0) return false;
+    int p = colonPos + 1;
+    while (p < json.length() && isspace((unsigned char)json[p])) p++;
+    bool neg = false;
+    if (p < json.length() && json[p] == '-') { neg = true; p++; }
+    if (p >= json.length() || !isDigit(json[p])) return false;
+    int64_t v = 0;
+    while (p < json.length() && isDigit(json[p])) { v = v * 10 + (json[p] - '0'); p++; }
+    outValue = neg ? -v : v;
+    return true;
+}
+
+bool parseBoolField(const String& json, const char* key, bool& outValue) {
+    String quotedKey = String("\"") + key + "\"";
+    int keyPos = json.indexOf(quotedKey);
+    if (keyPos < 0) return false;
+    int colonPos = json.indexOf(':', keyPos + quotedKey.length());
+    if (colonPos < 0) return false;
+    int p = colonPos + 1;
+    while (p < json.length() && isspace((unsigned char)json[p])) p++;
+    if (json.startsWith("true", p))  { outValue = true;  return true; }
+    if (json.startsWith("false", p)) { outValue = false; return true; }
+    return false;
+}
+
 // "key": "wert" – ohne Escapes, reicht fuer Hash, Pfade und Versionsnummern
 bool parseStringField(const String& json, const char* key, String& outValue) {
     String quotedKey = String("\"") + key + "\"";
@@ -595,7 +845,6 @@ bool parseStringField(const String& json, const char* key, String& outValue) {
     if (colonPos < 0) return false;
     int openQuote = json.indexOf('"', colonPos + 1);
     if (openQuote < 0) return false;
-    // Zwischen Doppelpunkt und Anfuehrungszeichen darf nur Leerraum stehen
     for (int i = colonPos + 1; i < openQuote; i++) {
         if (!isspace((unsigned char)json[i])) return false;
     }
@@ -621,10 +870,18 @@ bool fetchMeta(Meta& meta) {
     parseStringField(body, "firmware_version", meta.firmwareVersion);
     parseStringField(body, "firmware_md5", meta.firmwareMd5);
     parseStringField(body, "firmware_url", meta.firmwareUrl);
-    logf("[Meta] next_wake_sec=%lu epd=%s firmware=%s",
+    int64_t v;
+    if (parseIntField(body, "epoch", v)) meta.epoch = v;
+    if (parseIntField(body, "tz_offset_sec", v)) meta.tzOffsetSec = (int32_t)v;
+    parseBoolField(body, "clean_due", meta.cleanDue);
+    parseBoolField(body, "show_offline_test", meta.showOfflineTest);
+    logf("[Meta] next_wake_sec=%lu epd=%s firmware=%s uhr=%s%s%s",
          (unsigned long)meta.nextWakeSec,
          meta.epdUrl.isEmpty() ? "nein" : "ja",
-         meta.firmwareVersion.isEmpty() ? "-" : meta.firmwareVersion.c_str());
+         meta.firmwareVersion.isEmpty() ? "-" : meta.firmwareVersion.c_str(),
+         meta.epoch > EPOCH_KNOWN_MIN ? "ja" : "nein",
+         meta.cleanDue ? " reinigung=faellig" : "",
+         meta.showOfflineTest ? " offline-probe" : "");
     return true;
 }
 
@@ -671,9 +928,8 @@ bool performOta(const Meta& meta) {
 // ════════════════════════════════════════════════════════════════════════════
 //  Kompaktes Bild (PLX6, 4 bpp) → direkt ins Display
 // ════════════════════════════════════════════════════════════════════════════
-bool fetchAndDisplayEpd(const String& path) {
+bool fetchAndDisplayEpd(const String& path, const char* hash) {
     String url = path.startsWith("/") ? String(SERVER_BASE_URL) + path : path;
-    const size_t EPD_BUF_SIZE = (size_t)EPD_HEIGHT * EPD_ROW_BYTES;     // 960 000
     const size_t BUF_SIZE = EPD_HEADER_SIZE + EPD_BUF_SIZE + 64;
     uint8_t* buf = (uint8_t*)heap_caps_malloc(BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!buf) {
@@ -691,7 +947,6 @@ bool fetchAndDisplayEpd(const String& path) {
     }
     g_downloadMs = millis() - t;
 
-    // Header pruefen: Magic, Version, bpp, Groesse
     auto le16 = [&](int o) -> uint16_t { return (uint16_t)buf[o] | ((uint16_t)buf[o + 1] << 8); };
     auto le32 = [&](int o) -> uint32_t {
         return (uint32_t)buf[o] | ((uint32_t)buf[o+1] << 8) | ((uint32_t)buf[o+2] << 16) | ((uint32_t)buf[o+3] << 24);
@@ -712,6 +967,7 @@ bool fetchAndDisplayEpd(const String& path) {
     logf("[EPD] Sende kompaktes Bild an Display...");
     EPD_Display(buf + EPD_HEADER_SIZE);
     g_refreshMs = millis() - t;
+    saveLastImage(buf + EPD_HEADER_SIZE, hash);
     heap_caps_free(buf);
     g_imageFormat = "epd4";
     logf("[EPD] Fertig!");
@@ -777,9 +1033,7 @@ bool parseBmpHeader(const uint8_t* buf, size_t bufLen,
     return true;
 }
 
-bool fetchAndDisplayBmp() {
-    // ── 1. BMP in PSRAM laden ─────────────────────────────────────────────
-    // 1200 × 1600 × 3 Bytes + Header ≈ 5.76 MB
+bool fetchAndDisplayBmp(const char* hash) {
     const size_t BMP_BUF_SIZE = (size_t)EPD_WIDTH * EPD_HEIGHT * 3 + 256;
     uint8_t* bmpBuf = (uint8_t*)heap_caps_malloc(BMP_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!bmpBuf) {
@@ -810,16 +1064,11 @@ bool fetchAndDisplayBmp() {
     }
 
     int32_t  absH      = abs(imgH);
-    bool     bottomUp  = (imgH > 0);             // Standard-BMP: Zeilen bottom-up
+    bool     bottomUp  = (imgH > 0);
 
-    // ── 2. Display initialisieren ─────────────────────────────────────────
     t = millis();
     EPD_Init();
 
-    // ── 3. Kombinierten 4bpp-Puffer in PSRAM allokieren ──────────────────
-    // EPD-Zeile = EPD_ROW_BYTES (600) Bytes: Bytes 0..299 Master, 300..599 Slave.
-    // 4 bpp, 2 Pixel pro Byte: (linkes_Pixel << 4) | rechtes_Pixel
-    const size_t EPD_BUF_SIZE = (size_t)EPD_HEIGHT * EPD_ROW_BYTES;
     uint8_t* epdBuf = (uint8_t*)heap_caps_malloc(EPD_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!epdBuf) {
         logf("[ERR] PSRAM fuer EPD-Puffer nicht ausreichend");
@@ -847,6 +1096,7 @@ bool fetchAndDisplayBmp() {
     logf("[EPD] Sende BMP-Bild an Display...");
     EPD_Display(epdBuf);
     g_refreshMs = millis() - t;
+    saveLastImage(epdBuf, hash);
 
     heap_caps_free(epdBuf);
     g_imageFormat = "bmp";
@@ -875,6 +1125,8 @@ bool sendAck(const char* result, const char* hash, const char* fwTarget) {
     if (g_refreshMs)  { body += ",\"refresh_ms\":";  body += String((unsigned long)g_refreshMs); }
     if (!g_imageFormat.isEmpty()) { body += ",\"image_format\":\""; body += g_imageFormat; body += "\""; }
     body += ",\"wake_reason\":\""; body += wakeReasonText(); body += "\"";
+    if (g_cleaned)        { body += ",\"cleaned\":1"; }
+    if (g_offlineSeconds) { body += ",\"offline_s\":"; body += String((unsigned long)g_offlineSeconds); }
     if (!g_error.isEmpty()) { body += ",\"error\":\""; body += jsonEscape(g_error); body += "\""; }
 
     if (DEVICE_LOG_ENABLED && g_log.length()) {
@@ -901,6 +1153,8 @@ bool sendAck(const char* result, const char* hash, const char* fwTarget) {
     if (ok) {
         lastError[0] = 0;      // Server hat den Fehler des letzten Zyklus jetzt gesehen
         g_log = "";
+        g_cleaned = 0;
+        g_offlineSeconds = 0;
     }
     return ok;
 }

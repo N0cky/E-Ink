@@ -162,6 +162,14 @@ details[open] summary { margin-bottom: 8px; }
                     html += kv('Letzter Zyklus', esc((d.cycle_ms / 1000).toFixed(1) + ' s') + (parts.length ? ' <span class="hint">· ' + esc(parts.join(' · ')) + '</span>' : '') + (d.image_format ? ' <span class="hint">· ' + esc(d.image_format === 'epd4' ? 'kompakt' : d.image_format.toUpperCase()) + '</span>' : ''));
                 }
                 if (d.free_psram_kb != null) html += kv('Freier PSRAM', esc(Math.round(d.free_psram_kb / 1024) + ' MB') + (d.boot_count != null ? ' <span class="hint">· Boot #' + esc(d.boot_count) + '</span>' : ''));
+                if (s.panel) {
+                    var p = s.panel;
+                    var cleanTxt = p.clean_interval_days > 0 ? ('alle ' + p.clean_interval_days + ' Tage um ' + p.clean_hour + ' Uhr') : 'aus';
+                    html += kv('Panelreinigung', esc(cleanTxt) + (p.last_clean_at ? ' <span class="hint">· zuletzt ' + esc(ui.fmtDateTime(p.last_clean_at)) + '</span>' : ' <span class="hint">· noch nie</span>'));
+                    html += kv('Offline-Hinweis', p.test_banner_pending
+                        ? '<span class="chip warn">Probe beim nächsten Aufwachen</span>'
+                        : '<button class="btn" type="button" id="testBanner" style="padding:4px 10px">Auf dem Display ausprobieren</button>');
+                }
                 html += kv('Gerätelog', '<a href="/system#geraet">auf der System-Seite</a>');
             } else {
                 html += '<div class="hint">Noch kein Gerät hat sich gemeldet. Sobald der ESP32 das erste Bild bestätigt, steht er hier.</div>';
@@ -169,6 +177,12 @@ details[open] summary { margin-bottom: 8px; }
             html += kv('Nächstes Aufwachen', 'in ' + esc(ui.mmss(s.next.seconds)) + ' <span class="hint">· ' + esc(s.next.reason) + '</span>');
             html += kv('Aktuelles Bild', esc(s.current.module_name) + ' <span class="hint">um ' + esc(ui.fmtTime(s.current.rendered_at)) + '</span>');
             $('client').innerHTML = html;
+            var tb = $('testBanner');
+            if (tb) tb.addEventListener('click', async function () {
+                tb.disabled = true;
+                try { await ui.json('/api/device/test-banner', { method: 'POST' }); ui.toast('Das Gerät zeigt den Offline-Hinweis beim nächsten Aufwachen und danach wieder das normale Bild.', 'ok', 6000); loadClient(); }
+                catch (e) { ui.toast('Konnte nicht anfordern: ' + e.message, 'error'); tb.disabled = false; }
+            });
             renderFirmware(s.firmware);
 
             $('details').innerHTML = kv('Bild-Hash', '<span class="mono">' + esc(s.current.hash || '–') + '</span>')

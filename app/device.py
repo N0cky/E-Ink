@@ -109,10 +109,80 @@ def delete_firmware() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Gerätezustand (Panelreinigung, Test des Offline-Hinweises)
+# ---------------------------------------------------------------------------
+
+DEVICE_STATE_PATH = DATA_DIR / "device_state.json"
+_test_banner_pending = False
+
+
+def load_device_state() -> dict:
+    try:
+        data = json.loads(DEVICE_STATE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def save_device_state(state: dict) -> None:
+    with _lock:
+        DEVICE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = DEVICE_STATE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, DEVICE_STATE_PATH)
+
+
+def last_clean_at() -> datetime | None:
+    raw = load_device_state().get("last_clean_at", "")
+    try:
+        return datetime.fromisoformat(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def mark_cleaned(now: datetime) -> None:
+    state = load_device_state()
+    state["last_clean_at"] = now.isoformat()
+    save_device_state(state)
+
+
+def clean_due(now: datetime, interval_days: int, hour: int) -> bool:
+    """
+    Fällig, wenn die Reinigung eingeschaltet ist, die Stunde passt und die letzte
+    Reinigung mindestens interval_days (minus einer halben Stunde Toleranz) her ist.
+    Ohne bisherige Reinigung: beim ersten Aufwachen in der passenden Stunde.
+    """
+    if interval_days <= 0 or now.hour != hour:
+        return False
+    last = last_clean_at()
+    if last is None:
+        return True
+    if last.tzinfo is None and now.tzinfo is not None:
+        last = last.replace(tzinfo=now.tzinfo)
+    return (now - last).total_seconds() >= interval_days * 86400 - 1800
+
+
+def request_test_banner() -> None:
+    global _test_banner_pending
+    _test_banner_pending = True
+
+
+def test_banner_pending() -> bool:
+    return _test_banner_pending
+
+
+def consume_test_banner() -> bool:
+    global _test_banner_pending
+    was = _test_banner_pending
+    _test_banner_pending = False
+    return was
+
+
+# ---------------------------------------------------------------------------
 # ACK
 # ---------------------------------------------------------------------------
 
-_INT_FIELDS = ("rssi", "boot_count", "free_psram_kb", "cycle_ms", "download_ms", "refresh_ms")
+_INT_FIELDS = ("rssi", "boot_count", "free_psram_kb", "cycle_ms", "download_ms", "refresh_ms", "cleaned", "offline_s")
 _STR_FIELDS = ("device_id", "hash", "fw_version", "result", "error", "image_format", "wake_reason", "ip")
 
 

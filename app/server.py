@@ -22,7 +22,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, redirect, render_template, request, send_file, jsonify, url_for
 from PIL import Image, ImageDraw
@@ -860,6 +860,15 @@ def meta_json():
         payload["firmware_md5"] = fw["md5"]
         payload["firmware_size"] = fw["size"]
         payload["firmware_url"] = fw["url"]
+    # Uhrzeit fürs Gerät (Offline-Balken "seit HH:MM"), Panelreinigung, Test des Hinweises
+    from app.device import clean_due, test_banner_pending
+    now = _get_local_now()
+    cfg = get_cfg()
+    payload["epoch"] = int(now.timestamp())
+    payload["tz_offset_sec"] = int((now.utcoffset() or timedelta(0)).total_seconds())
+    payload["clean_due"] = clean_due(now, cfg.panel_clean_interval_days, cfg.panel_clean_hour)
+    if test_banner_pending():
+        payload["show_offline_test"] = True
     return jsonify(payload)
 
 
@@ -897,6 +906,16 @@ def ack():
     fw_now = ack_data.get("fw_version", "")
     if fw_now and previous.get("fw_version") and previous.get("fw_version") != fw_now:
         log_event("device", f"Gerät {device} läuft jetzt Firmware {fw_now}")
+    from app.device import consume_test_banner, mark_cleaned
+    if ack_data.get("cleaned"):
+        mark_cleaned(_get_local_now())
+        log_event("device", f"Gerät {device} hat das Panel gereinigt")
+    offline_s = ack_data.get("offline_s")
+    if isinstance(offline_s, int) and offline_s > 0:
+        log_event("device", f"Gerät {device} ist wieder erreichbar – war {max(1, offline_s // 60)} min ohne Verbindung", logging.WARNING)
+    if result == "test":
+        log_event("device", f"Gerät {device} zeigt den Offline-Hinweis zur Probe")
+    consume_test_banner()
     rssi = ack_data.get("rssi")
     if isinstance(rssi, int) and rssi < -82:
         log_event("device", f"Gerät {device}: WLAN sehr schwach ({rssi} dBm)", logging.WARNING)
@@ -960,6 +979,15 @@ def api_device_firmware_delete():
     from app.device import delete_firmware
     delete_firmware()
     log_event("device", "Bereitgestellte Firmware entfernt")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/device/test-banner", methods=["POST"])
+def api_device_test_banner():
+    """Einmalig: das Gerät zeigt beim nächsten Aufwachen den Offline-Hinweis zur Probe."""
+    from app.device import request_test_banner
+    request_test_banner()
+    log_event("device", "Offline-Hinweis zur Probe angefordert – das Gerät zeigt ihn beim nächsten Aufwachen")
     return jsonify({"ok": True})
 
 

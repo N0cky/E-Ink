@@ -176,6 +176,38 @@ class AckAndDeviceLogTest(_TmpFirmware):
         self.assertEqual(dev["fw_version"], "")
         self.assertIsNone(dev["rssi"])
 
+    def test_meta_carries_time_clean_and_test_flag(self) -> None:
+        client = server.app.test_client()
+        with patch.object(device, "DEVICE_STATE_PATH", Path(self._tmp.name) / "state.json"), \
+             patch.object(server, "_esp32_state", {"hash": "abc", "format": "bmp", "state": "s", "media_type": "m", "rendered_at": ""}):
+            meta = client.get("/meta.json").get_json()
+            self.assertGreater(meta["epoch"], 1_700_000_000)
+            self.assertIn(meta["tz_offset_sec"] % 900, (0,))
+            self.assertIn("clean_due", meta)
+            self.assertNotIn("show_offline_test", meta)
+            self.assertEqual(client.post("/api/device/test-banner").status_code, 200)
+            self.assertTrue(client.get("/meta.json").get_json()["show_offline_test"])
+            self.assertTrue(client.get("/api/display").get_json()["panel"]["test_banner_pending"])
+            # Das Gerät meldet sich → Probe verbraucht, Reinigung wird vermerkt, Offline-Zeit erzeugt ein Ereignis
+            resp = client.post("/ack", json={"device_id": "d", "hash": "abc", "result": "test", "fw_version": "1.2.0",
+                                              "cleaned": 1, "offline_s": 1900})
+            self.assertEqual(resp.status_code, 200)
+            self.assertNotIn("show_offline_test", client.get("/meta.json").get_json())
+            panel = client.get("/api/display").get_json()["panel"]
+            self.assertTrue(panel["last_clean_at"])
+            self.assertFalse(panel["test_banner_pending"])
+
+    def test_clean_due_logic(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        with patch.object(device, "DEVICE_STATE_PATH", Path(self._tmp.name) / "state.json"):
+            three_am = datetime(2026, 9, 4, 3, 10, tzinfo=timezone.utc)
+            self.assertFalse(device.clean_due(three_am, 0, 3), "0 Tage = aus")
+            self.assertFalse(device.clean_due(three_am.replace(hour=12), 14, 3), "falsche Stunde")
+            self.assertTrue(device.clean_due(three_am, 14, 3), "noch nie gereinigt → fällig")
+            device.mark_cleaned(three_am)
+            self.assertFalse(device.clean_due(three_am + timedelta(days=1), 14, 3))
+            self.assertTrue(device.clean_due(three_am + timedelta(days=14), 14, 3))
+
     def test_rssi_quality_bands(self) -> None:
         self.assertEqual(device.rssi_quality(-60)[1], "ok")
         self.assertEqual(device.rssi_quality(-80)[1], "warn")
