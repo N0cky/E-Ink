@@ -47,6 +47,7 @@
 #include <esp_sleep.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 #include "epd.h"
 #include "font_data.h"
@@ -56,9 +57,9 @@
 // Der Server liest die Version aus dem Marker in der .bin (Gerät-Seite → Firmware).
 // Der Marker wird im Boot-Log referenziert, sonst wirft der Linker ihn weg.
 #ifdef OTA_SELFTEST_FAIL
-#define FIRMWARE_VERSION "1.2.0-selftest"
+#define FIRMWARE_VERSION "1.2.2-selftest"
 #else
-#define FIRMWARE_VERSION "1.2.0"
+#define FIRMWARE_VERSION "1.2.2"
 #endif
 #define FW_MARKER_PREFIX "PLEXEINK_FW_VERSION="
 const char FW_VERSION_MARKER[] __attribute__((used)) = FW_MARKER_PREFIX FIRMWARE_VERSION;
@@ -194,6 +195,15 @@ void setup() {
     delay(500);
     g_cycleStart = millis();
     bootCount++;
+
+    // Watchdog: ein Zyklus dauert normal 35 s, mit Reinigung 90 s. Haengt etwas
+    // laenger als 5 Minuten (Panel, Flash, Netz), startet der Chip neu statt
+    // fuer immer wach zu bleiben.
+    {
+        esp_task_wdt_config_t wdt = { .timeout_ms = 300000, .idle_core_mask = 0, .trigger_panic = true };
+        esp_task_wdt_reconfigure(&wdt);
+        esp_task_wdt_add(NULL);
+    }
     logf("== PlexEInk %s Boot #%lu (%s) ==", firmwareVersionFromMarker(), (unsigned long)bootCount, wakeReasonText());
     logf("PSRAM frei: %u KB", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
     {
@@ -371,9 +381,22 @@ void setup() {
         storedHash[0] = 0;      // danach das Bild in jedem Fall neu
     }
 
+    // ── Probe des Offline-Hinweises (von der Gerät-Seite angefordert) ────────
+    // Balken auf das gespeicherte Bild, ein einziger Bildaufbau; der naechste
+    // Zyklus holt das normale Bild, weil der Hash geloescht wird.
+    if (meta.showOfflineTest) {
+        showOfflineBanner(false, true);
+        bannerShown = 1;
+        storedHash[0] = 0;
+        if (ACK_ENABLED) sendAck("test", storedHash);
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        goSleep(meta.nextWakeSec);
+    }
+
     // ── Hash unverändert → nur melden und schlafen ───────────────────────────
     bool shown = false;
-    if (meta.hash == String(storedHash) && !meta.showOfflineTest) {
+    if (meta.hash == String(storedHash)) {
         logf("[Hash] Unveraendert -> Sleep %lu s", (unsigned long)meta.nextWakeSec);
         if (ACK_ENABLED) sendAck(g_error.isEmpty() ? "unchanged" : "error", storedHash);
         WiFi.disconnect(true);
@@ -403,12 +426,7 @@ void setup() {
         shown = true;
     }
 
-    // ── Probe des Offline-Hinweises (von der Gerät-Seite angefordert) ────────
-    if (meta.showOfflineTest) {
-        showOfflineBanner(false, true);
-        bannerShown = 1;        // naechster Zyklus zeichnet das normale Bild wieder
-        if (ACK_ENABLED) sendAck("test", storedHash);
-    } else if (ACK_ENABLED) {
+    if (ACK_ENABLED) {
         const char* result = !shown ? "error" : (g_error.isEmpty() ? "updated" : "error");
         if (!sendAck(result, storedHash)) logf("[WARN] ACK nicht bestaetigt");
     }

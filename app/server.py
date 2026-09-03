@@ -861,13 +861,15 @@ def meta_json():
         payload["firmware_size"] = fw["size"]
         payload["firmware_url"] = fw["url"]
     # Uhrzeit fürs Gerät (Offline-Balken "seit HH:MM"), Panelreinigung, Test des Hinweises
-    from app.device import clean_due, test_banner_pending
+    from app.device import clean_due, consume_test_banner
     now = _get_local_now()
     cfg = get_cfg()
     payload["epoch"] = int(now.timestamp())
     payload["tz_offset_sec"] = int((now.utcoffset() or timedelta(0)).total_seconds())
     payload["clean_due"] = clean_due(now, cfg.panel_clean_interval_days, cfg.panel_clean_hour)
-    if test_banner_pending():
+    # Einmalig: mit der Auslieferung verbraucht, damit ein Geraet, das dabei haengen
+    # bleibt, den Auftrag nicht bei jedem Neustart wieder bekommt
+    if consume_test_banner():
         payload["show_offline_test"] = True
     return jsonify(payload)
 

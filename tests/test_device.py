@@ -186,8 +186,11 @@ class AckAndDeviceLogTest(_TmpFirmware):
             self.assertIn("clean_due", meta)
             self.assertNotIn("show_offline_test", meta)
             self.assertEqual(client.post("/api/device/test-banner").status_code, 200)
-            self.assertTrue(client.get("/meta.json").get_json()["show_offline_test"])
             self.assertTrue(client.get("/api/display").get_json()["panel"]["test_banner_pending"])
+            self.assertTrue(client.get("/meta.json").get_json()["show_offline_test"])
+            # Mit der Auslieferung verbraucht – ein zweites meta.json traegt den Auftrag nicht mehr
+            self.assertNotIn("show_offline_test", client.get("/meta.json").get_json())
+            self.assertFalse(client.get("/api/display").get_json()["panel"]["test_banner_pending"])
             # Das Gerät meldet sich → Probe verbraucht, Reinigung wird vermerkt, Offline-Zeit erzeugt ein Ereignis
             resp = client.post("/ack", json={"device_id": "d", "hash": "abc", "result": "test", "fw_version": "1.2.0",
                                               "cleaned": 1, "offline_s": 1900})

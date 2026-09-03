@@ -110,9 +110,16 @@ void EPD_Init(void) {
     pinMode(PIN_EPD_PWR,   OUTPUT); digitalWrite(PIN_EPD_PWR, HIGH);  // Display einschalten
     pinMode(PIN_EPD_BUSY,  INPUT);
 
-    // Hardware-SPI starten (MISO = -1, kein Lesekanal nötig)
-    epd_spi.begin(PIN_EPD_SCLK, -1, PIN_EPD_MOSI, -1);
-    epd_spi.beginTransaction(SPISettings(EPD_SPI_FREQ, MSBFIRST, SPI_MODE0));
+    // Hardware-SPI starten (MISO = -1, kein Lesekanal nötig) – nur einmal pro Boot.
+    // beginTransaction() haelt den Bus-Mutex; ein zweiter Aufruf ohne endTransaction()
+    // blockiert fuer immer. Genau das passierte, wenn in einem Zyklus zweimal
+    // initialisiert wurde (Bild + Offline-Balken, Reinigung + Bild).
+    static bool spiReady = false;
+    if (!spiReady) {
+        epd_spi.begin(PIN_EPD_SCLK, -1, PIN_EPD_MOSI, -1);
+        epd_spi.beginTransaction(SPISettings(EPD_SPI_FREQ, MSBFIRST, SPI_MODE0));
+        spiReady = true;
+    }
     delay(20);
 
     // Reset-Sequenz (5 Flanken × 30 ms, exakt wie im Originalcode)
