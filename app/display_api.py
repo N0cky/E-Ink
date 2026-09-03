@@ -116,7 +116,24 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
             seconds_since_ack = None
 
     night_fixed = _registry.get_module_by_id(cfg.night_mode_fixed_module_id)
+
+    from app.device import firmware_info, rssi_quality
+    fw = firmware_info()
+    device_fw = str(last_ack.get("fw_version", "") or "")
+    rssi = last_ack.get("rssi")
+    rssi_label, rssi_state = rssi_quality(rssi if isinstance(rssi, int) else None)
     return {
+        "firmware": {
+            "hosted":         bool(fw),
+            "version":        fw["version"] if fw else "",
+            "size":           fw["size"] if fw else 0,
+            "md5":            fw["md5"] if fw else "",
+            "uploaded_at":    fw.get("uploaded_at", "") if fw else "",
+            "device_version": device_fw,
+            # Update steht an, wenn eine Datei bereitliegt und das Gerät eine andere Version meldet
+            "update_pending": bool(fw) and bool(device_fw) and fw["version"] != device_fw,
+            "device_supports_ota": bool(device_fw),
+        },
         "layout":           cfg.idle_layout,
         "rotation_seconds": cfg.idle_module_rotation_seconds,
         "theme":            cfg.display_theme,
@@ -144,6 +161,20 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
             "remote":           last_ack.get("remote", ""),
             "seconds_since_ack": seconds_since_ack,
             "hash_matches":     bool(ack_at) and last_ack.get("hash") == esp32_state.get("hash"),
+            "result":           str(last_ack.get("result", "") or ""),
+            "error":            str(last_ack.get("error", "") or ""),
+            "fw_version":       device_fw,
+            "rssi":             rssi if isinstance(rssi, int) else None,
+            "rssi_label":       rssi_label,
+            "rssi_state":       rssi_state,
+            "boot_count":       last_ack.get("boot_count"),
+            "free_psram_kb":    last_ack.get("free_psram_kb"),
+            "cycle_ms":         last_ack.get("cycle_ms"),
+            "download_ms":      last_ack.get("download_ms"),
+            "refresh_ms":       last_ack.get("refresh_ms"),
+            "image_format":     str(last_ack.get("image_format", "") or ""),
+            "wake_reason":      str(last_ack.get("wake_reason", "") or ""),
+            "ip":               str(last_ack.get("ip", "") or ""),
         },
         "content": [_module_entry(m, env, active_id, tiles) for m in ordered],
         "live":    [_module_entry(m, env, active_id, tiles) for m in live_mods],

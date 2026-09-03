@@ -37,6 +37,7 @@ from app.config import (
     PROJECT_DIR,
     CURRENT_IMAGE_PATH,
     CURRENT_BMP_PATH,
+    CURRENT_EPD_PATH,
     STATE_PATH,
     SETTINGS_FIELDS        as FRAMEWORK_SETTINGS_FIELDS,
     SETTINGS_GROUPS        as FRAMEWORK_SETTINGS_GROUPS,
@@ -46,7 +47,8 @@ from app.config import (
     write_env_settings,
     should_flip_output,
 )
-from app.image_rendering import convert_to_spectra6
+from app.image_rendering import convert_to_spectra6, quantize_spectra6, spectra6_images
+from app.epd_format import encode_epd4
 import app.module_registry as _registry
 
 # ── Flask-App ────────────────────────────────────────────────────────────────
@@ -66,7 +68,8 @@ _registry.reload_modules()
 
 # Endpunkte, die der ESP32 ohne Auth erreichen muss. Der Rest (Dashboard,
 # Settings, Logs, alle /api/*) wird geschützt, sobald ein Passwort gesetzt ist.
-_PUBLIC_PATHS = ("/hash", "/meta.json", "/current.png", "/current.bmp", "/ack", "/health")
+_PUBLIC_PATHS = ("/hash", "/meta.json", "/current.png", "/current.bmp", "/current.epd", "/ack", "/health",
+                 "/firmware.json", "/firmware.bin")
 _PUBLIC_PREFIXES = ("/static/",)
 
 
@@ -327,11 +330,13 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
     # dann atomar schreiben. Erst danach den ESP32-State umschalten,
     # damit /meta.json nie einen neuen Hash zu einer alten Datei liefert.
     if cfg.output_format == "bmp":
-        device_img, preview_img = convert_to_spectra6(image)
+        quantized = quantize_spectra6(image)
+        device_img, preview_img = spectra6_images(quantized)
         device_bytes  = _encode_image(device_img, "BMP")
         preview_bytes = _encode_image(preview_img, "PNG")
+        epd_bytes     = encode_epd4(quantized)      # kompaktes 4-bpp-Format, gleicher Inhalt
         image_hash = hashlib.md5(device_bytes).hexdigest()
-        files = [(CURRENT_IMAGE_PATH, preview_bytes), (CURRENT_BMP_PATH, device_bytes)]
+        files = [(CURRENT_IMAGE_PATH, preview_bytes), (CURRENT_BMP_PATH, device_bytes), (CURRENT_EPD_PATH, epd_bytes)]
     else:
         png_bytes = _encode_image(image, "PNG")
         image_hash = hashlib.md5(png_bytes).hexdigest()
@@ -733,6 +738,23 @@ def current_bmp():
     return send_file(str(CURRENT_BMP_PATH), mimetype="image/bmp", max_age=0)
 
 
+@app.route("/current.epd", methods=["GET"])
+def current_epd():
+    """Kompaktes 4-bpp-Bild (siehe app/epd_format.py). Nur bei OUTPUT_FORMAT=bmp."""
+    cfg = get_cfg()
+    if cfg.output_format != "bmp":
+        return "Das kompakte Format gibt es nur mit OUTPUT_FORMAT=bmp.", 404
+    if not CURRENT_EPD_PATH.exists():
+        try:
+            render_image()
+        except Exception as exc:
+            log.error(f"current_epd render: {exc}", exc_info=True)
+            return "Bild konnte nicht gerendert werden.", 500
+        if not CURRENT_EPD_PATH.exists():
+            return "Noch kein Bild.", 404
+    return send_file(str(CURRENT_EPD_PATH), mimetype="application/octet-stream", max_age=0)
+
+
 # ── Modul-Vorschau ───────────────────────────────────────────────────────────
 
 def render_module_preview(module_id: str, theme: str | None = None, device: bool = False) -> Image.Image | None:
@@ -812,7 +834,8 @@ def meta_json():
     fmt   = _esp32_state.get("format", get_cfg().output_format)
     media_type = _esp32_state.get("media_type", "idle")
     next_wake_sec, next_wake_reason = _suggest_next_wake(state, media_type)
-    return jsonify({
+    from app.device import firmware_info
+    payload = {
         "hash":          _esp32_state.get("hash", ""),
         "format":        fmt,
         "state":         state,
@@ -821,23 +844,135 @@ def meta_json():
         "next_wake_sec": next_wake_sec,
         "next_wake_reason": next_wake_reason,
         "image_url":     f"/current.{fmt}",
-    })
+    }
+    # Kompaktes Format: das Gerät bevorzugt es, wenn es angeboten wird
+    if fmt == "bmp" and CURRENT_EPD_PATH.exists():
+        payload["epd_url"] = "/current.epd"
+        payload["epd_size"] = CURRENT_EPD_PATH.stat().st_size
+    fw = firmware_info()
+    if fw:
+        payload["firmware_version"] = fw["version"]
+        payload["firmware_md5"] = fw["md5"]
+        payload["firmware_size"] = fw["size"]
+        payload["firmware_url"] = fw["url"]
+    return jsonify(payload)
 
 
 @app.route("/ack", methods=["POST"])
 def ack():
+    """
+    Rückmeldung des Geräts am Ende jedes Zyklus: Hash, Ergebnis (updated,
+    unchanged, error, ota), Gesundheitsdaten (RSSI, Firmware, Zeiten) und die
+    seriellen Logzeilen des Zyklus.
+    """
     global _last_ack
+    from app.device import append_device_log, firmware_info, normalize_ack
     body = request.get_json(silent=True) or {}
-    _last_ack = {
-        **body,
-        "ack_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "remote": request.remote_addr,
-    }
-    hash_short = str(body.get("hash", ""))[:8] or "–"
-    device     = body.get("device_id", request.remote_addr)
-    matches = str(body.get("hash", "")) == _esp32_state.get("hash", "")
-    log_event("device", f"Gerät {device} hat sich gemeldet ({'aktuelles' if matches else 'älteres'} Bild, {hash_short}…)")
-    return jsonify({"ok": True, "ack_at": _last_ack["ack_at"]})
+    ack_data = normalize_ack(body, request.remote_addr)
+    previous = dict(_last_ack)
+    _last_ack = ack_data
+
+    device = ack_data.get("device_id") or request.remote_addr
+    result = ack_data.get("result", "updated")
+    hash_short = ack_data.get("hash", "")[:8] or "–"
+    matches = ack_data.get("hash", "") == _esp32_state.get("hash", "")
+
+    if isinstance(body.get("log"), list):
+        append_device_log(device, body["log"], ack_data["ack_at"])
+
+    if result == "updated":
+        log_event("device", f"Gerät {device} zeigt jetzt das {'aktuelle' if matches else 'ältere'} Bild ({hash_short}…)")
+    elif result == "ota":
+        log_event("device", f"Gerät {device} installiert Firmware {ack_data.get('fw_target', '')} und startet neu".replace("  ", " "))
+    elif result == "error":
+        log_event("device", f"Gerät {device} meldet einen Fehler: {ack_data.get('error', 'unbekannt')}", logging.WARNING)
+    else:
+        log.debug(f"ACK {device}: {result} ({hash_short}…)")
+
+    fw_now = ack_data.get("fw_version", "")
+    if fw_now and previous.get("fw_version") and previous.get("fw_version") != fw_now:
+        log_event("device", f"Gerät {device} läuft jetzt Firmware {fw_now}")
+    rssi = ack_data.get("rssi")
+    if isinstance(rssi, int) and rssi < -82:
+        log_event("device", f"Gerät {device}: WLAN sehr schwach ({rssi} dBm)", logging.WARNING)
+
+    fw = firmware_info()
+    return jsonify({
+        "ok": True,
+        "ack_at": ack_data["ack_at"],
+        "firmware": {"version": fw["version"], "md5": fw["md5"], "url": fw["url"]} if fw else None,
+    })
+
+
+# ── Firmware und Gerätelog ───────────────────────────────────────────────────
+
+@app.route("/firmware.json", methods=["GET"])
+def firmware_json():
+    from app.device import firmware_info
+    fw = firmware_info()
+    if not fw:
+        return jsonify({"hosted": False}), 404
+    return jsonify({"hosted": True, **fw})
+
+
+@app.route("/firmware.bin", methods=["GET"])
+def firmware_bin():
+    from app.device import FIRMWARE_BIN, firmware_info
+    fw = firmware_info()
+    if not fw:
+        return "Keine Firmware bereitgestellt.", 404
+    response = send_file(str(FIRMWARE_BIN), mimetype="application/octet-stream", max_age=0,
+                         as_attachment=True, download_name=f"PlexEInk-{fw['version']}.bin")
+    # HTTPUpdate auf dem ESP32 prüft die Datei gegen diesen Header
+    response.headers["x-MD5"] = fw["md5"]
+    response.headers["X-Firmware-Version"] = fw["version"]
+    return response
+
+
+@app.route("/api/device/firmware", methods=["GET"])
+def api_device_firmware_get():
+    from app.device import firmware_info
+    return jsonify({"hosted": bool(firmware_info()), "firmware": firmware_info()})
+
+
+@app.route("/api/device/firmware", methods=["POST"])
+def api_device_firmware_post():
+    from app.device import store_firmware
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"ok": False, "error": "Bitte eine .bin-Datei auswählen."}), 400
+    data = upload.read()
+    try:
+        info = store_firmware(data)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    log_event("device", f"Firmware {info['version']} bereitgestellt – das Gerät holt sie beim nächsten Aufwachen")
+    return jsonify({"ok": True, "firmware": {**info, "url": "/firmware.bin"}})
+
+
+@app.route("/api/device/firmware", methods=["DELETE"])
+def api_device_firmware_delete():
+    from app.device import delete_firmware
+    delete_firmware()
+    log_event("device", "Bereitgestellte Firmware entfernt")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/device/log", methods=["GET"])
+def api_device_log():
+    from app.device import read_device_log
+    try:
+        limit = min(int(request.args.get("limit", "300")), 2000)
+    except ValueError:
+        limit = 300
+    return jsonify(read_device_log(limit))
+
+
+@app.route("/api/device/log", methods=["DELETE"])
+def api_device_log_delete():
+    from app.device import clear_device_log
+    clear_device_log()
+    return jsonify({"ok": True})
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────

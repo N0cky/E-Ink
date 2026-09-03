@@ -105,6 +105,24 @@
 #define ACK_ENABLED       true
 #endif
 
+// Firmware-Update ueber den Server: /meta.json nennt die bereitgestellte Version,
+// weicht sie von FIRMWARE_VERSION ab, laedt das Geraet /firmware.bin (MD5-geprueft)
+// in die zweite App-Partition und startet neu. Meldet sich die neue Firmware nicht
+// mit einem erfolgreichen Zyklus zurueck, rollt der Bootloader auf die alte zurueck.
+#ifndef FIRMWARE_OTA_ENABLED
+#define FIRMWARE_OTA_ENABLED  true
+#endif
+
+// Serielle Ausgaben des Zyklus mit dem ACK an den Server schicken (System-Seite → "Geraet")
+#ifndef DEVICE_LOG_ENABLED
+#define DEVICE_LOG_ENABLED    true
+#endif
+
+// Kompaktes 4-bpp-Bild (/current.epd, 960 KB) statt 24-Bit-BMP (5,8 MB), wenn der Server es anbietet
+#ifndef PREFER_COMPACT_IMAGE
+#define PREFER_COMPACT_IMAGE  true
+#endif
+
 #ifndef SERIAL_BAUD
 #define SERIAL_BAUD      115200
 #endif

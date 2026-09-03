@@ -54,6 +54,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 CURRENT_IMAGE_PATH = DATA_DIR / "current.png"
 CURRENT_BMP_PATH   = DATA_DIR / "current.bmp"
+CURRENT_EPD_PATH   = DATA_DIR / "current.epd"    # kompaktes 4-bpp-Format für den ESP32
 STATE_PATH         = DATA_DIR / "state.txt"
 
 

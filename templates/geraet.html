@@ -45,6 +45,16 @@ details[open] summary { margin-bottom: 8px; }
             <div id="client"><div class="hint">Wird geladen …</div></div>
         </div></div>
         <div class="card"><div class="card-body">
+            <div class="card-title">Firmware</div>
+            <div id="firmware"><div class="hint">Wird geladen …</div></div>
+            <div class="actions-row" style="flex-wrap:wrap">
+                <input type="file" id="fwFile" accept=".bin" style="font-size:12.5px;max-width:100%">
+                <button class="btn primary" type="button" id="fwUpload">Hochladen</button>
+                <button class="btn" type="button" id="fwDelete" hidden>Entfernen</button>
+            </div>
+            <div class="hint" style="margin-top:8px">Die .bin aus dem Arduino-Build hochladen. Das Gerät vergleicht beim nächsten Aufwachen die Version, spielt das Update ein und meldet sich mit der neuen Firmware zurück. Schlägt der Start fehl, kehrt es von allein zur alten Firmware zurück.</div>
+        </div></div>
+        <div class="card"><div class="card-body">
             <details>
                 <summary>Details für Bastler</summary>
                 <div id="details"></div>
@@ -135,21 +145,76 @@ details[open] summary { margin-bottom: 8px; }
                 html += kv('Gerät', esc(d.device_id) + (d.remote ? ' <span class="hint">' + esc(d.remote) + '</span>' : ''));
                 html += kv('Zuletzt gemeldet', esc(ui.ago(d.seconds_since_ack)) + (stale ? ' <span class="chip warn">länger nicht gesehen</span>' : ' <span class="chip ok">verbunden</span>'));
                 html += kv('Zeigt', d.hash_matches ? '<span class="chip ok">das aktuelle Bild</span>' : '<span class="chip warn">ein älteres Bild</span>');
+                if (d.error) html += kv('Letzter Fehler', '<span class="chip warn">' + esc(d.error) + '</span>');
+                if (d.fw_version) {
+                    html += kv('Firmware', esc(d.fw_version) + (s.firmware.update_pending ? ' <span class="chip warn">Update ' + esc(s.firmware.version) + ' wartet</span>' : ' <span class="chip ok">aktuell</span>'));
+                } else {
+                    html += kv('Firmware', '<span class="hint">meldet keine Version · älter als 1.1.0, Update nur per USB</span>');
+                }
+                if (d.rssi != null) {
+                    var cls = d.rssi_state === 'bad' ? 'warn' : (d.rssi_state === 'warn' ? 'warn' : 'ok');
+                    html += kv('WLAN', esc(d.rssi + ' dBm') + ' <span class="chip ' + cls + '">' + esc(d.rssi_label) + '</span>' + (d.ip ? ' <span class="hint">' + esc(d.ip) + '</span>' : ''));
+                }
+                if (d.cycle_ms != null) {
+                    var parts = [];
+                    if (d.download_ms != null) parts.push('Download ' + (d.download_ms / 1000).toFixed(1) + ' s');
+                    if (d.refresh_ms != null) parts.push('Anzeige ' + (d.refresh_ms / 1000).toFixed(1) + ' s');
+                    html += kv('Letzter Zyklus', esc((d.cycle_ms / 1000).toFixed(1) + ' s') + (parts.length ? ' <span class="hint">· ' + esc(parts.join(' · ')) + '</span>' : '') + (d.image_format ? ' <span class="hint">· ' + esc(d.image_format === 'epd4' ? 'kompakt' : d.image_format.toUpperCase()) + '</span>' : ''));
+                }
+                if (d.free_psram_kb != null) html += kv('Freier PSRAM', esc(Math.round(d.free_psram_kb / 1024) + ' MB') + (d.boot_count != null ? ' <span class="hint">· Boot #' + esc(d.boot_count) + '</span>' : ''));
+                html += kv('Gerätelog', '<a href="/system#geraet">auf der System-Seite</a>');
             } else {
                 html += '<div class="hint">Noch kein Gerät hat sich gemeldet. Sobald der ESP32 das erste Bild bestätigt, steht er hier.</div>';
             }
             html += kv('Nächstes Aufwachen', 'in ' + esc(ui.mmss(s.next.seconds)) + ' <span class="hint">· ' + esc(s.next.reason) + '</span>');
             html += kv('Aktuelles Bild', esc(s.current.module_name) + ' <span class="hint">um ' + esc(ui.fmtTime(s.current.rendered_at)) + '</span>');
             $('client').innerHTML = html;
+            renderFirmware(s.firmware);
 
             $('details').innerHTML = kv('Bild-Hash', '<span class="mono">' + esc(s.current.hash || '–') + '</span>')
                 + kv('State-Key', '<span class="mono">' + esc(s.current.state || '–') + '</span>')
                 + kv('Format', esc((s.current.format || '').toUpperCase()))
                 + kv('Server prüft alle', esc(st.background_poll_sec + ' s'))
-                + kv('Endpunkte', ['/current.png', '/current.bmp', '/meta.json', '/hash', '/health'].map(function (p) { return '<a class="mono" href="' + p + '" target="_blank" rel="noreferrer">' + p + '</a>'; }).join('<br>'));
+                + kv('Endpunkte', ['/current.png', '/current.bmp', '/current.epd', '/meta.json', '/hash', '/firmware.json', '/health'].map(function (p) { return '<a class="mono" href="' + p + '" target="_blank" rel="noreferrer">' + p + '</a>'; }).join('<br>'));
             if (!document.querySelector('.theme img')) renderThemes();
         } catch (e) { $('client').innerHTML = '<div class="hint">Server nicht erreichbar.</div>'; }
     }
+
+    function renderFirmware(fw) {
+        var html = '';
+        if (fw && fw.hosted) {
+            var state = fw.update_pending ? '<span class="chip warn">wartet auf das Gerät</span>'
+                : (fw.device_version === fw.version ? '<span class="chip ok">auf dem Gerät</span>' : '<span class="chip">bereit</span>');
+            html += kv('Bereitgestellt', esc(fw.version) + ' ' + state);
+            html += kv('Datei', esc(Math.round(fw.size / 1024) + ' KB') + ' <span class="hint">· ' + esc(ui.fmtTime(fw.uploaded_at)) + ' · md5 ' + esc(fw.md5.slice(0, 8)) + '…</span>');
+        } else {
+            html += '<div class="hint">Keine Firmware bereitgestellt. Das Gerät läuft weiter mit seiner jetzigen Version.</div>';
+        }
+        if (fw && fw.device_version) html += kv('Auf dem Gerät', esc(fw.device_version));
+        $('firmware').innerHTML = html;
+        $('fwDelete').hidden = !(fw && fw.hosted);
+    }
+
+    $('fwUpload').addEventListener('click', async function () {
+        var input = $('fwFile');
+        if (!input.files || !input.files.length) { ui.toast('Bitte zuerst eine .bin-Datei auswählen.', 'error'); return; }
+        var btn = this; btn.disabled = true; btn.textContent = 'Lädt hoch …';
+        var body = new FormData(); body.append('file', input.files[0]);
+        try {
+            var r = await fetch('/api/device/firmware', { method: 'POST', body: body });
+            var data = await r.json();
+            if (!r.ok || !data.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            ui.toast('Firmware ' + data.firmware.version + ' bereitgestellt. Das Gerät holt sie beim nächsten Aufwachen.', 'ok', 6000);
+            input.value = '';
+            loadClient();
+        } catch (e) { ui.toast('Nicht übernommen: ' + e.message, 'error', 6000); }
+        btn.disabled = false; btn.textContent = 'Hochladen';
+    });
+
+    $('fwDelete').addEventListener('click', async function () {
+        try { await ui.json('/api/device/firmware', { method: 'DELETE' }); ui.toast('Firmware entfernt.', 'ok'); loadClient(); }
+        catch (e) { ui.toast('Konnte nicht entfernen: ' + e.message, 'error'); }
+    });
 
     loadForm().then(loadClient);
     setInterval(loadClient, 30000);

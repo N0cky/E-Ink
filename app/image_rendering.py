@@ -56,18 +56,23 @@ def convert_to_spectra6(img: Image.Image) -> tuple[Image.Image, Image.Image]:
         preview_img – Vorschau mit realen Farben (korrekte Darstellung am PC /
                       in der Settings-Seite)
     """
-    # Paletten-Bild mit realen Farbwerten aufbauen (6 Farben + 250× Schwarz-Auffüllung)
+    return spectra6_images(quantize_spectra6(img))
+
+
+def quantize_spectra6(img: Image.Image) -> Image.Image:
+    """
+    RGB → Paletten-Bild (Modus P) mit Floyd-Steinberg-Dithering auf die sechs
+    realen Spectra-Farben. Index 0 Schwarz, 1 Weiß, 2 Gelb, 3 Rot, 4 Blau, 5 Grün.
+    """
     pal_image = Image.new("P", (1, 1))
     pal_flat  = tuple(v for rgb in _SPECTRA6_REAL_WORLD_RGB for v in rgb)
     pal_flat += _SPECTRA6_REAL_WORLD_RGB[0] * 250  # restliche 250 Paletteneinträge mit Schwarz
     pal_image.putpalette(pal_flat)
+    return img.convert("RGB").quantize(dither=Image.Dither.FLOYDSTEINBERG, palette=pal_image)
 
-    # Quantisierung mit Floyd-Steinberg-Dithering → Palette-Modus P
-    quantized_p = img.convert("RGB").quantize(
-        dither=Image.Dither.FLOYDSTEINBERG,
-        palette=pal_image,
-    )
 
+def spectra6_images(quantized_p: Image.Image) -> tuple[Image.Image, Image.Image]:
+    """Paletten-Bild → (Geräte-BMP-Bild mit Protokoll-RGB, Vorschau mit realen Farben)."""
     # Vorschau-Bild: Palettenindizes → reale Farben
     preview_img = quantized_p.convert("RGB")
 

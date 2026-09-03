@@ -60,6 +60,7 @@ def _paths(tmp: Path) -> dict:
     return {
         "CURRENT_IMAGE_PATH": tmp / "current.png",
         "CURRENT_BMP_PATH":   tmp / "current.bmp",
+        "CURRENT_EPD_PATH":   tmp / "current.epd",
         "STATE_PATH":         tmp / "state.txt",
     }
 

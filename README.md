@@ -178,7 +178,7 @@ For local development, `python app/server.py` remains the simplest path. In Dock
 ### Security Notes
 
 - The web UI has **no authentication by default**. It is meant for a trusted home network.
-- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/ack`, `/health`) stay open so the device does not need credentials.
+- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/current.epd`, `/ack`, `/firmware.json`, `/firmware.bin`, `/health`) stay open so the device does not need credentials.
 - Secrets such as the Plex token or the Steam API key are never written into the settings page HTML. The field shows as empty; leaving it empty on save keeps the stored value.
 - Query parameters that carry secrets (`X-Plex-Token`, `key`, `token`, …) are masked in every log line.
 - Values in `config/settings.env` are written quoted when needed and read without variable interpolation. Settings are never exported to the process environment.
@@ -284,10 +284,14 @@ When settings are changed through the web UI, the application writes them back t
 |---|---|---|
 | `/current.png` | GET | Current image as PNG |
 | `/current.bmp` | GET | Current image as BMP (only when `OUTPUT_FORMAT=bmp`) |
-| `/meta.json` | GET | Hash, format, status, and suggested sleep interval |
+| `/current.epd` | GET | Current image in the compact 4-bpp display format, 960 KB instead of 5.8 MB (only when `OUTPUT_FORMAT=bmp`, see `app/epd_format.py`) |
+| `/meta.json` | GET | Hash, format, status, suggested sleep interval, compact image URL and hosted firmware version |
 | `/health` | GET | Health check for Docker and monitoring |
 | `/hash` | GET | MD5 hash of the current image (plain text) |
-| `/ack` | POST | Acknowledgement from the display client |
+| `/ack` | POST | Acknowledgement from the display client: result, health data (RSSI, firmware, timings) and the device log lines |
+| `/firmware.json`, `/firmware.bin` | GET | Firmware hosted for over-the-air updates (`x-MD5` header on the binary) |
+| `/api/device/firmware` | GET/POST/DELETE | Upload (multipart `file`), inspect or remove the hosted firmware |
+| `/api/device/log` | GET/DELETE | Device log sent with each acknowledgement |
 | `/refresh` | POST | Force an immediate re-render |
 | `/webhook` | POST | Plex webhook receiver |
 | `/api/status` | GET | Runtime status including loaded modules |
@@ -581,6 +585,12 @@ The sketch in `esp32/PlexEInk/` connects to the server over Wi-Fi, periodically 
 - Individual modules can provide their own wake recommendation for `/meta.json` through a hook
 
 This is especially relevant for `Gallery` when a custom image change interval is enabled.
+
+Since firmware 1.1.0 the device also:
+
+- prefers the compact image `/current.epd` (4 bits per pixel, 960 KB) and writes it straight to the panel, with the 24-bit BMP as fallback
+- reports its health with every acknowledgement (firmware version, RSSI, boot count, free PSRAM, download and refresh times, last error) and sends the serial log of the cycle, both visible on the *Gerät* and *System* pages
+- updates itself over the air: upload the `.bin` from the Arduino build on the *Gerät* page, the device compares the version in `/meta.json` with its own on the next wake-up, flashes the second app partition (MD5-checked) and reboots. The new firmware is only marked valid after a successful cycle, otherwise the bootloader rolls back.
 
 ---
 

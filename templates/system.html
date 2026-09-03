@@ -42,6 +42,7 @@
             <div class="seg">
                 <input type="radio" name="logmode" id="modeEvents" value="events" checked><label for="modeEvents">Ereignisse</label>
                 <input type="radio" name="logmode" id="modeAll" value="all"><label for="modeAll">Alles</label>
+                <input type="radio" name="logmode" id="modeDevice" value="device"><label for="modeDevice">Gerät</label>
             </div>
             <div class="levels" id="levels">
                 <button class="lvl active" type="button" data-level="ALL">Alle</button>
@@ -98,7 +99,22 @@
     var KIND_LABEL = { switch: 'Anzeige', device: 'Gerät', settings: 'Gespeichert', source: 'Quelle', render_error: 'Fehler', system: 'System' };
 
     /* ── Ereignisse ── */
+    /* Gerätelog: serielle Ausgaben, die der ESP32 mit jedem ACK mitschickt */
+    async function loadDeviceLog() {
+        var q = $('search').value.trim().toLowerCase();
+        try {
+            var entries = await ui.json('/api/device/log?limit=400');
+            if (q) entries = entries.filter(function (e) { return (e.msg + ' ' + e.device).toLowerCase().indexOf(q) >= 0; });
+            if (!entries.length) { $('events').innerHTML = '<div class="empty">Noch nichts vom Gerät. Ab Firmware 1.1.0 schickt der ESP32 sein Log mit jeder Rückmeldung.</div>'; return; }
+            $('events').innerHTML = entries.map(function (e) {
+                var lvl = /\[(ERR|WARN)\]/.test(e.msg) ? (e.msg.indexOf('[ERR]') >= 0 ? 'ERROR' : 'WARNING') : 'INFO';
+                return '<div class="ev ' + lvl + '"><span class="ts">' + esc(ui.fmtDateTime(e.ts)) + '</span><span class="kind">' + esc(e.device) + '</span><span class="msg mono">' + esc(e.msg) + '</span></div>';
+            }).join('');
+        } catch (err) { $('events').innerHTML = '<div class="empty">Fehler beim Laden.</div>'; }
+    }
+
     async function loadLogs() {
+        if (mode === 'device') return loadDeviceLog();
         var params = new URLSearchParams({ limit: mode === 'events' ? '300' : '800' });
         if (mode === 'events') params.set('events', '1'); else if (level !== 'ALL') params.set('level', level);
         var q = $('search').value.trim(); if (q) params.set('search', q);
@@ -116,6 +132,7 @@
     document.querySelectorAll('input[name="logmode"]').forEach(function (r) {
         r.addEventListener('change', function () { mode = r.value; $('levels').classList.toggle('show', mode === 'all'); loadLogs(); });
     });
+    if (location.hash === '#geraet') { mode = 'device'; $('modeDevice').checked = true; }
     document.querySelectorAll('.lvl').forEach(function (b) {
         b.addEventListener('click', function () { level = b.getAttribute('data-level'); document.querySelectorAll('.lvl').forEach(function (x) { x.classList.toggle('active', x === b); }); loadLogs(); });
     });
