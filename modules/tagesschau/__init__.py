@@ -94,6 +94,11 @@ class TagesschauModule(PlexInkModule):
             "Nachrichten-Refresh": f"{get_int_setting('TAGESSCHAU_IDLE_CACHE_SECONDS', 900, 60, 86400)}s",
         }
 
+    def summarize(self, env: dict[str, str]) -> str:
+        from app.config import get_int_setting
+        minutes = max(1, get_int_setting("TAGESSCHAU_IDLE_CACHE_SECONDS", 900, 60, 86400) // 60)
+        return f"Schlagzeilen, alle {minutes} min aktualisiert"
+
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         return {
             "ok": True,

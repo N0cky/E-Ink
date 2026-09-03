@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from flask import Flask, redirect, render_template, request, send_file, jsonify, url_for
 from PIL import Image, ImageDraw
 
-from app.logger import get_logger, redact_secrets, LOGS_DIR
+from app.logger import get_logger, log_event, redact_secrets, LOGS_DIR
 
 log = get_logger(__name__)
 
@@ -341,6 +341,7 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
 
     _atomic_write_bytes(STATE_PATH, state_key.encode("utf-8"))
 
+    previous_module = str(_esp32_state.get("media_type", ""))
     _esp32_state = {
         "hash":        image_hash,
         "format":      cfg.output_format,
@@ -354,6 +355,10 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         f"theme={cfg.display_theme} fmt={cfg.output_format} "
         f"hash={_esp32_state['hash'][:8]}…{' (unverändert)' if unchanged else ''}"
     )
+    if module_id != previous_module and previous_module not in ("", "idle"):
+        mod = _registry.get_module_by_id(module_id)
+        shown = "Dashboard" if module_id == "dashboard" else (mod.MODULE_NAME if mod else module_id)
+        log_event("switch", f"Display zeigt jetzt: {shown}")
 
 
 # ---------------------------------------------------------------------------
@@ -831,7 +836,8 @@ def ack():
     }
     hash_short = str(body.get("hash", ""))[:8] or "–"
     device     = body.get("device_id", request.remote_addr)
-    log.info(f"ACK {device} – hash={hash_short}… | {_last_ack['ack_at']}")
+    matches = str(body.get("hash", "")) == _esp32_state.get("hash", "")
+    log_event("device", f"Gerät {device} hat sich gemeldet ({'aktuelles' if matches else 'älteres'} Bild, {hash_short}…)")
     return jsonify({"ok": True, "ack_at": _last_ack["ack_at"]})
 
 
@@ -861,6 +867,7 @@ def settings_page():
         # gemischte alte/neue Werte (z. B. alte Breite im Canvas, neue im Overlay).
         with _render_lock:
             apply_runtime_config(updates)
+        log_event("settings", "Einstellungen gespeichert")
 
         # Worker rendert mit der neuen Config; kurz warten, damit die
         # Vorschau nach dem Redirect schon das neue Bild zeigt.
@@ -932,6 +939,95 @@ def webhook():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+# ── JSON-Schnittstelle der Oberfläche (Anzeige, Karten, Prüfen) ─────────────
+
+def _apply_updates_and_render(updates: dict[str, str], wait_seconds: float = 0.0) -> None:
+    write_env_settings(updates)
+    with _render_lock:
+        apply_runtime_config(updates)
+    log_event("settings", "Einstellungen gespeichert")
+    request_render(wait_seconds=wait_seconds)
+
+
+def _display_state_payload() -> dict:
+    from app.display_api import build_display_state
+    state = _esp32_state.get("state", "idle")
+    media_type = _esp32_state.get("media_type", "idle")
+    return build_display_state(_esp32_state, _last_ack, _suggest_next_wake(state, media_type))
+
+
+@app.route("/api/display", methods=["GET"])
+def api_display_get():
+    return jsonify(_display_state_payload())
+
+
+@app.route("/api/display", methods=["PUT", "POST"])
+def api_display_put():
+    from app.display_api import display_updates_from_payload, map_errors_to_fields
+    payload = request.get_json(silent=True) or {}
+    updates = display_updates_from_payload(payload)
+    if not updates:
+        return jsonify({"ok": False, "errors": {"fields": {}, "general": ["Keine Änderungen übermittelt."]}}), 400
+
+    sections = _build_settings_sections()
+    all_fields = _all_fields_from_sections(sections)
+    errors = _validate_all_settings(updates, all_fields)
+    # Zusätzliche Anzeige-Regel: Dashboard-Kacheln müssen Kacheln liefern können
+    cfg_layout = updates.get("IDLE_LAYOUT", get_cfg().idle_layout)
+    if cfg_layout == "dashboard":
+        for mid in [x.strip() for x in updates.get("IDLE_MODULES", "").split(",") if x.strip()]:
+            mod = _registry.get_module_by_id(mid)
+            if mod is not None and not mod.supports_tile():
+                errors.append(f"Dashboard: {mod.MODULE_NAME} hat keine Kachel-Darstellung und wird im Dashboard nicht gezeigt.")
+    if errors:
+        return jsonify({"ok": False, "errors": map_errors_to_fields(errors, all_fields)}), 400
+
+    _apply_updates_and_render(updates)
+    return jsonify({"ok": True, "display": _display_state_payload()})
+
+
+@app.route("/api/settings/<module_id>", methods=["GET"])
+def api_module_settings_get(module_id: str):
+    from app.display_api import build_module_settings
+    try:
+        return jsonify(build_module_settings(module_id))
+    except LookupError:
+        return jsonify({"ok": False, "error": "Unbekanntes Modul"}), 404
+
+
+@app.route("/api/settings/<module_id>", methods=["PUT", "POST"])
+def api_module_settings_put(module_id: str):
+    from app.display_api import build_module_settings, map_errors_to_fields, module_updates_from_values
+    payload = request.get_json(silent=True) or {}
+    values = payload.get("values", payload)
+    if not isinstance(values, dict):
+        return jsonify({"ok": False, "errors": {"fields": {}, "general": ["Ungültiges Format."]}}), 400
+    try:
+        updates = module_updates_from_values(module_id, values)
+    except LookupError:
+        return jsonify({"ok": False, "error": "Unbekanntes Modul"}), 404
+    if not updates:
+        return jsonify({"ok": False, "errors": {"fields": {}, "general": ["Keine bekannten Felder übermittelt."]}}), 400
+
+    sections = _build_settings_sections()
+    all_fields = _all_fields_from_sections(sections)
+    errors = _validate_all_settings(updates, all_fields)
+    if errors:
+        return jsonify({"ok": False, "errors": map_errors_to_fields(errors, all_fields)}), 400
+
+    _apply_updates_and_render(updates)
+    return jsonify({"ok": True, "settings": build_module_settings(module_id)})
+
+
+@app.route("/api/probe/<module_id>", methods=["POST"])
+def api_probe(module_id: str):
+    from app.display_api import probe_module
+    try:
+        return jsonify(probe_module(module_id))
+    except LookupError:
+        return jsonify({"ok": False, "message": "Unbekanntes Modul"}), 404
+
+
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
@@ -954,6 +1050,8 @@ def api_logs():
     except ValueError:
         limit = 500
     search = request.args.get("search", "").lower()
+    # events=1: nur Ereignisse (log_event) plus Warnungen und Fehler – ohne "Rendered …"-Rauschen
+    events_only = request.args.get("events", "").strip().lower() in ("1", "true", "yes")
 
     level_order = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "WARN": 30, "ERROR": 40, "CRITICAL": 50}
     min_level   = level_order.get(level_filter, 0) if level_filter != "ALL" else 0
@@ -983,6 +1081,8 @@ def api_logs():
             except _json.JSONDecodeError:
                 continue
             if level_order.get(entry.get("level", "DEBUG"), 0) < min_level:
+                continue
+            if events_only and not entry.get("event") and level_order.get(entry.get("level", "DEBUG"), 0) < 30:
                 continue
             if search and search not in (entry.get("msg") or "").lower() \
                        and search not in (entry.get("name") or "").lower():

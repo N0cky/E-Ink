@@ -40,6 +40,11 @@ class PlexInkModule(ABC):
     # Leere Liste → alle Felder werden ohne Untergruppen dargestellt.
     SETTINGS_GROUPS: list[dict] = []
 
+    # Prioritätsmodule (Live-Inhalte) werden über einen eigenen Settings-Key
+    # ein- und ausgeschaltet (z. B. "PLEX_MODULE_ENABLED"). Idle-Module lassen
+    # das leer: sie werden über IDLE_MODULES geschaltet.
+    ENABLED_KEY: str | None = None
+
     # ── Lifecycle-Methoden ────────────────────────────────────────────────────
 
     def is_enabled(self, env: dict[str, str]) -> bool:
@@ -138,6 +143,57 @@ class PlexInkModule(ABC):
         None -> Framework-Standardlogik verwenden.
         """
         return None
+
+    # ── Oberfläche: Status, Zusammenfassung, Verbindungstest ────────────────
+
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        """
+        Bereitschaft des Moduls für die Oberfläche, unabhängig davon, ob es
+        eingeschaltet ist. Rückgabe {"state": ..., "reason": ...} mit state:
+          "ready"   – konfiguriert, kann laufen
+          "missing" – Konfiguration unvollständig; reason sagt, was fehlt
+          "error"   – konfiguriert, aber zuletzt fehlgeschlagen
+        Standard: leitet aus get_health_status() ab ("configured"/"ok").
+        """
+        health = None
+        try:
+            health = self.get_health_status(env)
+        except Exception:
+            health = None
+        if isinstance(health, dict):
+            if health.get("configured") is False:
+                return {"state": "missing", "reason": "Nicht konfiguriert"}
+            if health.get("ok") is False:
+                return {"state": "error", "reason": str(health.get("error") or "Fehler")}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        """
+        Ein Satz für die eingeklappte Karte, z. B. "Gießen · UV Frankfurt".
+        Standard: die Werte aus get_runtime_summary(), mit · verbunden.
+        """
+        try:
+            values = [str(v) for v in (self.get_runtime_summary(env) or {}).values() if str(v).strip()]
+        except Exception:
+            values = []
+        return " · ".join(values)
+
+    def probe(self, env: dict[str, str]) -> dict[str, Any]:
+        """
+        Verbindungstest für den Knopf "Prüfen": ruft die Quelle einmal ab.
+        Rückgabe {"ok": bool, "message": str}. Standard: fetch_content().
+        """
+        try:
+            content = self.fetch_content(env)
+        except Exception as exc:
+            return {"ok": False, "message": f"Fehler: {exc}"}
+        if content is None:
+            return {"ok": False, "message": "Quelle liefert gerade keine Daten"}
+        return {"ok": True, "message": "Daten vorhanden"}
+
+    def supports_tile(self) -> bool:
+        """True, wenn das Modul render_tile() überschreibt (Dashboard-Kachel)."""
+        return type(self).render_tile is not PlexInkModule.render_tile
 
     # ── Dashboard-Modus ──────────────────────────────────────────────────────
 

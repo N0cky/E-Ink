@@ -257,6 +257,15 @@ class DWDWeatherModule(PlexInkModule):
             "Stundenraster": f"{get_int_setting('DWD_HOURLY_INTERVAL_HOURS', 2, 1, 4)}h",
         }
 
+    def summarize(self, env: dict[str, str]) -> str:
+        from .dwd import resolve_dwd_station_name
+        parts = [resolve_dwd_station_name(env.get("DWD_WEATHER_STATION_ID", "10532").strip() or "10532")]
+        if env.get("DWD_UV_CITY", "").strip():
+            parts.append(f"UV {env['DWD_UV_CITY'].strip()}")
+        if env.get("DWD_POLLEN_REGION", "").strip() and env.get("DWD_POLLEN_ALLERGENS", "").strip():
+            parts.append("Pollen")
+        return " · ".join(parts)
+
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         station_id = env.get("DWD_WEATHER_STATION_ID", "").strip() or "10532"
         return {

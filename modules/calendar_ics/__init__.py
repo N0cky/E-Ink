@@ -138,6 +138,25 @@ class CalendarModule(PlexInkModule):
             "Kalender-Zeitraum": f"{env.get('CALENDAR_DAYS_AHEAD', '7')} Tage",
         }
 
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        from .data_source import parse_sources
+        if not parse_sources(env.get("CALENDAR_ICS_URLS", "")):
+            return {"state": "missing", "reason": "ICS-Adresse fehlt"}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        from .data_source import parse_sources
+        sources = parse_sources(env.get("CALENDAR_ICS_URLS", ""))
+        names = [label or f"Kalender {i + 1}" for i, (label, _) in enumerate(sources)]
+        return " · ".join(names + ([f"{env.get('CALENDAR_DAYS_AHEAD', '7')} Tage"] if names else []))
+
+    def probe(self, env: dict[str, str]) -> dict:
+        from .data_source import fetch_calendar_content
+        content = fetch_calendar_content(True)
+        if not content:
+            return {"ok": False, "message": "Kalender nicht ladbar"}
+        return {"ok": True, "message": f"{content.get('total_events', 0)} Termine in den nächsten {content.get('days_ahead', 7)} Tagen"}
+
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         from .data_source import parse_sources
         return {

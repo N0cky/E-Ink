@@ -126,6 +126,37 @@ class GarbageModule(PlexInkModule):
             "Müll-Zeitraum": f"{env.get('GARBAGE_DAYS_AHEAD', '14')} Tage",
         }
 
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        from .data_source import parse_sources
+        if not parse_sources(env.get("GARBAGE_ICS_URLS", "")):
+            return {"state": "missing", "reason": "ICS-Adresse fehlt"}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        from .data_source import parse_sources, fetch_garbage_content
+        sources = parse_sources(env.get("GARBAGE_ICS_URLS", ""))
+        if not sources:
+            return ""
+        parts = [f"{len(sources)} Adresse{'n' if len(sources) != 1 else ''}"]
+        try:
+            content = fetch_garbage_content(False)
+        except Exception:
+            content = None
+        nxt = (content or {}).get("next")
+        if nxt:
+            from app.config import format_weekday_short
+            d = nxt["date"]
+            names = ", ".join(ev["summary"] for ev in nxt["events"][:2])
+            parts.append(f"nächste Abfuhr {format_weekday_short(d)} {d.day:02d}.{d.month:02d}. {names}")
+        return " · ".join(parts)
+
+    def probe(self, env: dict[str, str]) -> dict:
+        from .data_source import fetch_garbage_content
+        content = fetch_garbage_content(True)
+        if not content:
+            return {"ok": False, "message": "Kalender nicht ladbar oder keine kommenden Termine"}
+        return {"ok": True, "message": f"{len(content.get('days', []))} Abfuhrtage in den nächsten {content.get('days_ahead', 14)} Tagen"}
+
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         from .data_source import parse_sources
         sources = parse_sources(env.get("GARBAGE_ICS_URLS", ""))

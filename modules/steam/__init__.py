@@ -89,8 +89,32 @@ class SteamModule(PlexInkModule):
     SETTINGS_FIELDS = SETTINGS_FIELDS
     SETTINGS_GROUPS = SETTINGS_GROUPS
 
+    ENABLED_KEY = "STEAM_MODULE_ENABLED"
+
     def is_enabled(self, env: dict[str, str]) -> bool:
         return env.get("STEAM_MODULE_ENABLED", "false").strip().lower() == "true"
+
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        if not env.get("STEAM_PROFILE", "").strip():
+            return {"state": "missing", "reason": "Steam-Profil fehlt"}
+        if not env.get("STEAM_API_KEY", "").strip():
+            return {"state": "missing", "reason": "API-Key fehlt"}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        profile = env.get("STEAM_PROFILE", "").strip().rstrip("/")
+        return profile.rsplit("/", 1)[-1] if profile else ""
+
+    def probe(self, env: dict[str, str]) -> dict:
+        from .steam import get_player_summary
+        try:
+            summary = get_player_summary()
+        except Exception as exc:
+            return {"ok": False, "message": f"Steam nicht erreichbar: {exc}"}
+        if not summary:
+            return {"ok": False, "message": "Profil nicht gefunden oder API-Key ungültig"}
+        game = summary.get("gameextrainfo")
+        return {"ok": True, "message": f"Verbunden als {summary.get('personaname', '?')}" + (f", spielt {game}" if game else ", spielt gerade nicht")}
 
     def fetch_content(self, env: dict[str, str]) -> dict | None:
         from .steam import get_active_game

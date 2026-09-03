@@ -72,12 +72,18 @@ class _JsonLineFormatter(logging.Formatter):
         elif name == "plex_ink":
             name = "server"
 
-        return json.dumps({
+        payload = {
             "ts":    datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "name":  name,
             "msg":   msg,
-        }, ensure_ascii=False)
+        }
+        # Ereignisse (log_event) bekommen eine Art, damit die Oberfläche sie
+        # von Routine-Zeilen wie "Rendered …" unterscheiden kann
+        event = getattr(record, "event", None)
+        if event:
+            payload["event"] = str(event)
+        return json.dumps(payload, ensure_ascii=False)
 
 
 class _RedactingConsoleFormatter(logging.Formatter):
@@ -134,6 +140,18 @@ _root_logger = _setup()
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+EVENT_KINDS = ("switch", "device", "settings", "source", "render_error", "system")
+
+
+def log_event(kind: str, message: str, level: int = logging.INFO) -> None:
+    """
+    Ereignis für die Oberfläche: Inhalt gewechselt, Gerät gemeldet, Einstellungen
+    gespeichert, Quelle nicht erreichbar. Landet als normale Logzeile mit
+    zusätzlichem "event"-Feld in der JSONL, /api/logs?events=1 filtert darauf.
+    """
+    logging.getLogger("plex_ink.events").log(level, message, extra={"event": kind})
+
 
 def get_logger(name: str) -> logging.Logger:
     """

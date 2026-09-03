@@ -198,6 +198,24 @@ class GalleryModule(PlexInkModule):
             ),
         }
 
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        from .data_source import parse_gallery_paths
+        paths = parse_gallery_paths(env.get("GALLERY_PATHS", ""))
+        if not paths:
+            return {"state": "missing", "reason": "Bildordner fehlt"}
+        missing = [str(p) for p in paths if not (p.exists() and p.is_dir())]
+        if missing:
+            return {"state": "error", "reason": f"Ordner nicht gefunden: {missing[0]}"}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        from .data_source import parse_gallery_paths
+        paths = parse_gallery_paths(env.get("GALLERY_PATHS", ""))
+        if not paths:
+            return ""
+        mode = {"fit_blur_bg": "Einpassen mit Unschärfe", "cover": "Bildfüllend"}.get(env.get("GALLERY_FIT_MODE", "fit_blur_bg"), "")
+        return " · ".join(x for x in (f"{len(paths)} Ordner", mode) if x)
+
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         from .data_source import parse_gallery_paths
 

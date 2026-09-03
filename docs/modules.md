@@ -298,6 +298,22 @@ def render_tile(self, env, content, width, height):
     return render_example(services, content, compact=True)
 ```
 
+### `describe_status(self, env)`, `summarize(self, env)`, `probe(self, env)`
+
+Drei kleine Hooks fuer die Oberflaeche. Mit ihnen bekommt ein Modul auf der Anzeige-Seite
+einen Status-Chip, auf der Inhalte-Seite eine Zusammenfassung und einen Knopf "Pruefen".
+
+- `describe_status(env)` → `{"state": "ready" | "missing" | "error", "reason": str}`.
+  Bereitschaft unabhaengig vom Ein/Aus-Schalter. `missing` sagt, was fehlt ("ICS-Adresse fehlt").
+  Standard: aus `get_health_status()` abgeleitet (`configured`, `ok`).
+- `summarize(env)` → ein Satz fuer die eingeklappte Karte ("Giessen · UV Frankfurt").
+  Standard: die Werte aus `get_runtime_summary()`.
+- `probe(env)` → `{"ok": bool, "message": str}`, ruft die Quelle einmal ab.
+  Standard: `fetch_content()` und "Daten vorhanden" / "keine Daten".
+
+Prioritaetsmodule setzen zusaetzlich `ENABLED_KEY` (z. B. `"PLEX_MODULE_ENABLED"`), damit die
+Anzeige-Seite sie ueber denselben Schalter ein- und ausschalten kann wie Idle-Module.
+
 ## Dynamische Feldoptionen
 
 Wenn ein Feld Optionen dynamisch laden soll:

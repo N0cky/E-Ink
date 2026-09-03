@@ -168,6 +168,30 @@ class PlexModule(PlexInkModule):
     MODULE_PRIORITY  = 0   # Höchste Priorität – überschreibt alle Idle-Module
     SETTINGS_FIELDS  = SETTINGS_FIELDS
     SETTINGS_GROUPS  = SETTINGS_GROUPS
+    ENABLED_KEY      = "PLEX_MODULE_ENABLED"
+
+    def describe_status(self, env: dict[str, str]) -> dict[str, str]:
+        if not env.get("PLEX_BASE_URL", "").strip():
+            return {"state": "missing", "reason": "Plex-Adresse fehlt"}
+        if not env.get("PLEX_TOKEN", "").strip():
+            return {"state": "missing", "reason": "Plex-Token fehlt"}
+        return {"state": "ready", "reason": ""}
+
+    def summarize(self, env: dict[str, str]) -> str:
+        from .plex import parse_session_priority
+        host = env.get("PLEX_BASE_URL", "").strip().replace("http://", "").replace("https://", "").rstrip("/")
+        labels = {"movie": "Filme", "episode": "Serien", "track": "Musik"}
+        kinds = ", ".join(labels.get(k, k) for k in parse_session_priority(env.get("SESSION_PRIORITY", "")))
+        return " · ".join(x for x in (host, kinds) if x)
+
+    def probe(self, env: dict[str, str]) -> dict:
+        from .plex import plex_get
+        try:
+            plex_get("/status/sessions")
+        except Exception as exc:
+            return {"ok": False, "message": f"Plex nicht erreichbar: {exc}"}
+        session = self.fetch_content(env)
+        return {"ok": True, "message": ("Verbunden, Wiedergabe läuft: " + str(session.get("title", ""))) if session else "Verbunden, gerade keine Wiedergabe"}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
