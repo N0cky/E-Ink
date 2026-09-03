@@ -156,6 +156,29 @@ class DisplayUpdateTest(unittest.TestCase):
         self.assertEqual(updates["NIGHT_MODE_START"], "22:30")
         self.assertEqual(updates["NIGHT_MODE_FIXED_MODULE"], "demo")
 
+    def test_heights_over_100_are_scaled_and_reported(self) -> None:
+        updates, notices = api.display_updates_and_notices({
+            "content": [{"id": "demo", "enabled": True, "height": 90}, {"id": "other", "enabled": True, "height": 60}],
+        })
+        self.assertEqual(updates["DASHBOARD_TILES"], "demo:60, other:40")
+        self.assertEqual(len(notices), 1)
+        self.assertIn("150 %", notices[0])
+        # Genau 100 oder darunter bleibt unangetastet
+        updates, notices = api.display_updates_and_notices({
+            "content": [{"id": "demo", "enabled": True, "height": 70}, {"id": "other", "enabled": True}],
+        })
+        self.assertEqual(updates["DASHBOARD_TILES"], "demo:70, other")
+        self.assertEqual(notices, [])
+
+    def test_put_returns_notices(self) -> None:
+        with patch.object(server, "write_env_settings"), patch.object(server, "request_render"):
+            response = server.app.test_client().put("/api/display", json={
+                "layout": "rotation",
+                "content": [{"id": "demo", "enabled": True, "height": 80}, {"id": "other", "enabled": False, "height": 80}],
+            })
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["notices"], [], "ausgeschaltete Inhalte zählen nicht")
+
     def test_put_writes_and_reports_tile_warning(self) -> None:
         with patch.object(server, "write_env_settings") as write_env, \
              patch.object(server, "request_render") as rr:

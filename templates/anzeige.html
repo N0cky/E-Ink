@@ -65,6 +65,7 @@
 .banner.show { display: block; }
 .banner ul { margin: 6px 0 0; padding-left: 18px; }
 .empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+.warn-text { color: var(--warn); font-weight: 700; }
 
 @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
@@ -125,6 +126,7 @@
         <div class="card"><div class="card-body">
             <div class="card-title">Programm <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:600">· Reihenfolge per Ziehen</span></div>
             <div class="rows" id="contentRows"><div class="empty">Wird geladen …</div></div>
+            <div class="hint" id="heightSum" hidden style="margin-top:10px"></div>
         </div></div>
 
         <div class="card"><div class="card-body">
@@ -318,6 +320,7 @@
             : 'Ein Inhalt pro Bild, in der Reihenfolge der Liste, im angegebenen Takt.';
 
         $('contentRows').innerHTML = draft.content.length ? draft.content.map(function (m) { return rowHtml(m, false); }).join('') : '<div class="empty">Keine Inhalte gefunden.</div>';
+        renderHeightSum();
         $('liveRows').innerHTML = draft.live.length ? draft.live.map(function (m) { return rowHtml(m, true); }).join('') : '<div class="empty">Keine Live-Inhalte installiert.</div>';
 
         var n = draft.night;
@@ -342,6 +345,34 @@
         $('discardBtn').hidden = !dirty;
     }
 
+    /* Live-Summe der Höhen im Dashboard-Modus – Feedback statt Fehlermeldung */
+    function renderHeightSum() {
+        var el = $('heightSum');
+        if (draft.layout !== 'dashboard') { el.hidden = true; return; }
+        var on = draft.content.filter(function (m) { return m.enabled; });
+        var sized = on.filter(function (m) { return m.height > 0; });
+        var auto = on.length - sized.length;
+        if (!on.length) { el.hidden = true; return; }
+        var sum = sized.reduce(function (a, m) { return a + m.height; }, 0);
+        var parts = sized.map(function (m) { return m.height; }).join(' + ');
+        var text, cls = 'hint';
+        if (sum > 100) {
+            text = 'Höhen: ' + parts + ' = ' + sum + ' % · beim Speichern anteilig auf 100 % verkleinert.';
+            cls += ' warn-text';
+        } else if (sum === 100 && auto === 0) {
+            text = 'Höhen: ' + parts + ' = 100 %.';
+        } else if (sum === 100 && auto > 0) {
+            text = 'Höhen: ' + parts + ' = 100 % · für ' + auto + ' Inhalt' + (auto > 1 ? 'e' : '') + ' ohne Angabe bleibt kein Platz.';
+            cls += ' warn-text';
+        } else if (!sized.length) {
+            text = 'Alle ' + on.length + ' Inhalte gleich hoch (' + Math.floor(100 / on.length) + ' %).';
+        } else {
+            var rest = 100 - sum;
+            text = 'Höhen: ' + parts + ' = ' + sum + ' % · die restlichen ' + rest + ' % ' + (auto > 0 ? 'teilen sich ' + auto + ' Inhalt' + (auto > 1 ? 'e' : '') + ' ohne Angabe.' : 'bekommt der letzte Inhalt.');
+        }
+        el.className = cls; el.textContent = text; el.hidden = false;
+    }
+
     function markDirty() { dirty = true; render(); }
 
     function bindRows() {
@@ -351,8 +382,8 @@
             });
         });
         document.querySelectorAll('.height input').forEach(function (inp) {
-            inp.addEventListener('change', function () {
-                var m = findModule(inp.getAttribute('data-id')); if (m) { m.height = inp.value ? parseInt(inp.value, 10) : null; dirty = true; $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false; }
+            inp.addEventListener('input', function () {
+                var m = findModule(inp.getAttribute('data-id')); if (m) { m.height = inp.value ? parseInt(inp.value, 10) : null; dirty = true; $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false; renderHeightSum(); }
             });
         });
         document.querySelectorAll('[data-preview]').forEach(function (b) {
@@ -427,6 +458,7 @@
             state = result.display; draft = JSON.parse(JSON.stringify(state));
             render(); renderShot();
             ui.toast('Gespeichert. Das Display holt sich das neue Bild beim nächsten Aufwachen.', 'ok', 4000);
+            (result.notices || []).forEach(function (n) { ui.toast(n, 'info', 6000); });
         } catch (e) {
             showErrors(e.data && e.data.errors);
             ui.toast('Nicht gespeichert', 'error');

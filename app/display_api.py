@@ -150,12 +150,37 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
     }
 
 
+def normalize_tile_heights(items: list[dict]) -> tuple[list[dict], str | None]:
+    """
+    Prozentangaben über 100 anteilig verkleinern, damit gespeichert wird, was
+    gerendert wird. Rückgabe (items mit angepassten Höhen, Hinweis oder None).
+    """
+    sized = [it for it in items if it.get("enabled") and isinstance(it.get("height"), int) and it["height"] > 0]
+    total = sum(it["height"] for it in sized)
+    if total <= 100:
+        return items, None
+    scaled: list[dict] = []
+    for it in items:
+        if it in sized:
+            it = {**it, "height": max(1, int(it["height"] * 100 // total))}
+        scaled.append(it)
+    new_total = sum(it["height"] for it in scaled if it.get("enabled") and isinstance(it.get("height"), int) and it["height"] > 0)
+    return scaled, f"Die Höhen ergaben {total} %. Sie wurden anteilig auf {new_total} % verkleinert."
+
+
 def display_updates_from_payload(payload: dict) -> dict[str, str]:
+    updates, _ = display_updates_and_notices(payload)
+    return updates
+
+
+def display_updates_and_notices(payload: dict) -> tuple[dict[str, str], list[str]]:
     """
     Übersetzt die Anzeige-Änderung in Settings-Keys. Fehlende Teile bleiben
     unverändert (es werden nur Keys geliefert, die im Payload vorkommen).
+    Hinweise beschreiben stille Anpassungen, z. B. verkleinerte Höhen.
     """
     updates: dict[str, str] = {}
+    notices: list[str] = []
     known = {m.MODULE_ID: m for m in _registry.get_modules()}
 
     if "layout" in payload:
@@ -165,23 +190,24 @@ def display_updates_from_payload(payload: dict) -> dict[str, str]:
         updates["IDLE_MODULE_ROTATION_SECONDS"] = str(payload["rotation_seconds"]).strip()
 
     if isinstance(payload.get("content"), list):
-        enabled_ids: list[str] = []
-        tiles: list[str] = []
+        items: list[dict] = []
         for item in payload["content"]:
             mid = str(item.get("id", "")).strip()
             mod = known.get(mid)
             if mod is None or mod.MODULE_PRIORITY < 10:
                 continue
-            if item.get("enabled"):
-                enabled_ids.append(mid)
-                height = item.get("height")
-                try:
-                    pct = int(height) if height not in (None, "", "auto") else 0
-                except (TypeError, ValueError):
-                    pct = 0
-                tiles.append(f"{mid}:{pct}" if pct > 0 else mid)
-        updates["IDLE_MODULES"] = ",".join(enabled_ids)
-        updates["DASHBOARD_TILES"] = ", ".join(tiles)
+            height = item.get("height")
+            try:
+                pct = int(height) if height not in (None, "", "auto") else 0
+            except (TypeError, ValueError):
+                pct = 0
+            items.append({"id": mid, "enabled": bool(item.get("enabled")), "height": max(0, min(100, pct))})
+        items, notice = normalize_tile_heights(items)
+        if notice:
+            notices.append(notice)
+        enabled = [it for it in items if it["enabled"]]
+        updates["IDLE_MODULES"] = ",".join(it["id"] for it in enabled)
+        updates["DASHBOARD_TILES"] = ", ".join(f"{it['id']}:{it['height']}" if it["height"] > 0 else it["id"] for it in enabled)
 
     if isinstance(payload.get("live"), list):
         for item in payload["live"]:
@@ -200,7 +226,7 @@ def display_updates_from_payload(payload: dict) -> dict[str, str]:
             if key in night:
                 value = night[key]
                 updates[env_key] = ("true" if value else "false") if isinstance(value, bool) else str(value).strip()
-    return updates
+    return updates, notices
 
 
 # ---------------------------------------------------------------------------

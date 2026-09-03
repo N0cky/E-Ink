@@ -950,9 +950,9 @@ def api_display_get():
 
 @app.route("/api/display", methods=["PUT", "POST"])
 def api_display_put():
-    from app.display_api import display_updates_from_payload, map_errors_to_fields
+    from app.display_api import display_updates_and_notices, map_errors_to_fields
     payload = request.get_json(silent=True) or {}
-    updates = display_updates_from_payload(payload)
+    updates, notices = display_updates_and_notices(payload)
     if not updates:
         return jsonify({"ok": False, "errors": {"fields": {}, "general": ["Keine Änderungen übermittelt."]}}), 400
 
@@ -970,7 +970,7 @@ def api_display_put():
         return jsonify({"ok": False, "errors": map_errors_to_fields(errors, all_fields)}), 400
 
     _apply_updates_and_render(updates)
-    return jsonify({"ok": True, "display": _display_state_payload()})
+    return jsonify({"ok": True, "notices": notices, "display": _display_state_payload()})
 
 
 @app.route("/api/settings/<module_id>", methods=["GET"])
