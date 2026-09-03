@@ -236,6 +236,20 @@ class ModuleSettingsTest(unittest.TestCase):
         self.assertEqual(written["DEMO_KINDS"], "b")
         rr.assert_called_once()
 
+    def test_saving_one_card_keeps_every_other_setting_in_memory(self) -> None:
+        """Regression: ein Teil-Update darf die restliche Laufzeit-Konfiguration nicht löschen."""
+        before = config.get_settings_values()
+        self.assertEqual(before["DEMO_DAYS"], "7")
+        self.assertEqual(before["IDLE_MODULES"], "demo")
+        with patch.object(server, "write_env_settings"), patch.object(server, "request_render"):
+            ok = self.client.put("/api/settings/demo", json={"values": {"DEMO_URL": "https://z"}})
+        self.assertEqual(ok.status_code, 200, ok.get_json())
+        after = config.get_settings_values()
+        self.assertEqual(after["DEMO_URL"], "https://z")
+        self.assertEqual(after["DEMO_DAYS"], "7", "unveränderte Modul-Werte bleiben")
+        self.assertEqual(after["IDLE_MODULES"], "demo", "unveränderte Framework-Werte bleiben")
+        self.assertEqual(after["DEMO_SECRET"], "geheim", "Passwörter bleiben")
+
     def test_framework_card_flags_display_managed_fields(self) -> None:
         payload = self.client.get("/api/settings/framework").get_json()
         by_name = {f["name"]: f for f in payload["fields"]}

@@ -922,9 +922,16 @@ def webhook():
 # ── JSON-Schnittstelle der Oberfläche (Anzeige, Karten, Prüfen) ─────────────
 
 def _apply_updates_and_render(updates: dict[str, str], wait_seconds: float = 0.0) -> None:
+    """
+    Teil-Änderung (eine Karte, die Anzeige, ein Import) übernehmen: in die
+    Datei mergen und die Laufzeit-Konfiguration aus ALLEN bisherigen Werten
+    plus den Änderungen neu bauen. apply_runtime_config() kennt nur, was man
+    ihr gibt – nur die Änderungen zu übergeben würde alle anderen Werte aus
+    dem Speicher werfen.
+    """
     write_env_settings(updates)
     with _render_lock:
-        apply_runtime_config(updates)
+        apply_runtime_config({**get_settings_values(), **updates})
     log_event("settings", "Einstellungen gespeichert")
     request_render(wait_seconds=wait_seconds)
 
