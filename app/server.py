@@ -41,7 +41,6 @@ from app.config import (
     SETTINGS_FIELDS        as FRAMEWORK_SETTINGS_FIELDS,
     SETTINGS_GROUPS        as FRAMEWORK_SETTINGS_GROUPS,
     apply_runtime_config,
-    collect_settings_form_data,
     get_settings_values,
     get_settings_runtime_summary,
     validate_settings,
@@ -704,7 +703,13 @@ def _validate_all_settings(updates: dict[str, str], all_fields: list[dict]) -> l
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"ok": True, "modules": _build_module_health()})
+    from app.config import APP_VERSION
+    return jsonify({
+        "ok": True,
+        "version": APP_VERSION,
+        "ui_password": bool(_ui_password()),
+        "modules": _build_module_health(),
+    })
 
 
 @app.route("/logo.png", methods=["GET"])
@@ -851,44 +856,51 @@ def ack():
 
 # ── Settings ─────────────────────────────────────────────────────────────────
 
-@app.route("/settings", methods=["GET", "POST"])
+@app.route("/inhalte", methods=["GET"])
+def content_page():
+    return render_template("inhalte.html")
+
+
+@app.route("/geraet", methods=["GET"])
+def device_page():
+    return render_template("geraet.html")
+
+
+@app.route("/system", methods=["GET"])
+def system_page():
+    return render_template("system.html")
+
+
+@app.route("/settings", methods=["GET"])
 def settings_page():
-    sections   = _build_settings_sections()
+    # Alte Adresse: die Einstellungen sind jetzt auf Inhalte, Gerät und System verteilt
+    return redirect(url_for("content_page"))
+
+
+@app.route("/api/settings/export", methods=["GET"])
+def api_settings_export():
+    from app.display_api import export_settings
+    include_secrets = request.args.get("secrets", "").strip().lower() in ("1", "true", "yes")
+    return jsonify(export_settings(include_secrets))
+
+
+@app.route("/api/settings/import", methods=["POST"])
+def api_settings_import():
+    from app.display_api import import_updates, map_errors_to_fields
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Keine gültige Einstellungsdatei."}), 400
+    updates, ignored = import_updates(payload)
+    if not updates:
+        return jsonify({"ok": False, "error": "Die Datei enthält keine bekannten Einstellungen."}), 400
+    sections = _build_settings_sections()
     all_fields = _all_fields_from_sections(sections)
-
-    base_kwargs = dict(
-        sections=sections,
-        values=get_settings_values(),
-        runtime_cards=_build_runtime_cards(),
-        modules=_registry.get_module_info_list(),
-    )
-
-    if request.method == "POST":
-        updates = collect_settings_form_data(request.form, all_fields)
-        errors  = _validate_all_settings(updates, all_fields)
-
-        if errors:
-            return render_template("settings.html", **base_kwargs, errors=errors, saved=False)
-
-        write_env_settings(updates)
-        # Unter dem Render-Lock umschalten: ein laufender Render sieht nie
-        # gemischte alte/neue Werte (z. B. alte Breite im Canvas, neue im Overlay).
-        with _render_lock:
-            apply_runtime_config(updates)
-        log_event("settings", "Einstellungen gespeichert")
-
-        # Worker rendert mit der neuen Config; kurz warten, damit die
-        # Vorschau nach dem Redirect schon das neue Bild zeigt.
-        request_render(wait_seconds=15)
-
-        return redirect(url_for("settings_page", saved=1))
-
-    return render_template(
-        "settings.html",
-        **base_kwargs,
-        errors=[],
-        saved=request.args.get("saved") == "1",
-    )
+    errors = _validate_all_settings(updates, all_fields)
+    if errors:
+        return jsonify({"ok": False, "errors": map_errors_to_fields(errors, all_fields)}), 400
+    _apply_updates_and_render(updates)
+    log_event("settings", f"Einstellungen aus Datei wiederhergestellt ({len(updates)} Werte)")
+    return jsonify({"ok": True, "applied": len(updates), "ignored": ignored})
 
 
 @app.route("/refresh", methods=["GET", "POST"])
@@ -1019,7 +1031,16 @@ def api_module_settings_put(module_id: str):
 
     sections = _build_settings_sections()
     all_fields = _all_fields_from_sections(sections)
-    errors = _validate_all_settings(updates, all_fields)
+    # Nur diese Karte prüfen: eine Lücke in einem anderen Modul darf das
+    # Speichern hier nicht blockieren (das prüft die Anzeige beim Einschalten)
+    errors = list(validate_settings(updates, all_fields))
+    target = _registry.get_module_by_id(module_id)
+    if target is not None:
+        try:
+            errors.extend(target.validate_settings(updates, _build_effective_settings(updates)))
+        except Exception as exc:
+            log.error(f"validate_settings [{module_id}]: {exc}", exc_info=True)
+            errors.append(f"{target.MODULE_NAME}: Fehler in der Modul-Validierung.")
     if errors:
         return jsonify({"ok": False, "errors": map_errors_to_fields(errors, all_fields)}), 400
 
@@ -1054,7 +1075,8 @@ def dashboard():
 
 @app.route("/logs", methods=["GET"])
 def logs_page():
-    return render_template("logs.html")
+    # Alte Adresse: Ereignisse und Konsole liegen jetzt unter System
+    return redirect(url_for("system_page"))
 
 
 @app.route("/api/logs", methods=["GET"])

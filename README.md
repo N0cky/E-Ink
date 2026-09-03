@@ -37,7 +37,7 @@ Supported output modes:
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
 - **Modular architecture** – add new content sources as standalone modules without touching the core framework
 - **Dark and light themes** – optimized for OLED-like displays and Waveshare Spectra 6 E-Ink panels
-- **Web UI** – browser-based settings, live preview, and log viewer
+- **Web UI** – four pages that follow the user's questions: *Anzeige* (what the display shows, with the programme, switches, order and previews), *Inhalte* (one card per source with its own save button and a connection test), *Gerät* (display and ESP32 status), *System* (events, time zone, backup and restore)
 - **Docker-ready** – container startup via `Dockerfile` and `docker-compose.yml`
 - **WSGI-ready** – production container startup through Gunicorn with a clean runtime bootstrap
 
@@ -178,7 +178,7 @@ For local development, `python app/server.py` remains the simplest path. In Dock
 ### Security Notes
 
 - The web UI has **no authentication by default**. It is meant for a trusted home network.
-- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect the dashboard, settings, logs and all `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/ack`, `/health`) stay open so the device does not need credentials.
+- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/ack`, `/health`) stay open so the device does not need credentials.
 - Secrets such as the Plex token or the Steam API key are never written into the settings page HTML. The field shows as empty; leaving it empty on save keeps the stored value.
 - Query parameters that carry secrets (`X-Plex-Token`, `key`, `token`, …) are masked in every log line.
 - Values in `config/settings.env` are written quoted when needed and read without variable interpolation. Settings are never exported to the process environment.
@@ -235,7 +235,7 @@ If you want Unraid to pull the image without GitHub authentication, make sure th
 
 ## Configuration
 
-All settings can be managed through the web UI at `/settings`, or directly in an env-style config file.
+All settings can be managed through the web UI (`/` for the programme, `/inhalte` for sources, `/geraet` for the display, `/system` for time zone and maintenance), or directly in an env-style config file. The UI writes the same keys, so both ways stay in sync.
 
 Config file lookup:
 
@@ -413,7 +413,8 @@ SETTINGS_FIELDS: list[dict] = [
         "name":        "MEIN_MODUL_API_KEY",
         "label":       "API Key",
         "type":        "text",           # text | number | password | select |
-                                         # checkbox_group | priority_list
+                                         # checkbox_group | priority_list | list | mapping
+                                         # (see docs/modules.md for list/mapping item_fields)
         "wide":        True,             # True = volle Breite im Formular
         "placeholder": "abc123",
         "help":        "API key for the external service.",

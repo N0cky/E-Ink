@@ -23,13 +23,15 @@ log = get_logger(__name__)
 SETTINGS_FIELDS: list[dict] = [
     {
         "name":        "GARBAGE_ICS_URLS",
-        "label":       "ICS-Kalender",
-        "type":        "text",
+        "label":       "Abfuhrkalender",
+        "type":        "list",
         "wide":        True,
-        "placeholder": "Zuhause|https://…/abfuhrtermine-{year}.php?…&icalDownload=true",
+        "item_fields": [
+            {"name": "label", "label": "Name", "placeholder": "Zuhause"},
+            {"name": "url",   "label": "ICS-Adresse", "placeholder": "https://…/abfuhrtermine-{year}.php?…&icalDownload=true", "wide": True},
+        ],
         "help": (
-            "Eine oder mehrere ICS-Adressen, getrennt durch Semikolon. Optional mit Label: "
-            "'Label|URL'. Steht das Jahr in der URL, ersetze es durch {year} – dann lädt das "
+            "Eine Zeile pro Adresse. Steht das Jahr in der URL, ersetze es durch {year} – dann lädt das "
             "Modul jedes Jahr automatisch den passenden Kalender und ab Ende November zusätzlich das Folgejahr."
         ),
     },
@@ -58,12 +60,16 @@ SETTINGS_FIELDS: list[dict] = [
     {
         "name":        "GARBAGE_TYPE_COLORS",
         "label":       "Tonnenfarben",
-        "type":        "text",
+        "type":        "mapping",
         "wide":        True,
-        "placeholder": "restmüll=black, bio=green, gelb=yellow, papier=blue, sperr=red",
+        "item_fields": [
+            {"name": "key",   "label": "Stichwort im Terminnamen", "placeholder": "bio"},
+            {"name": "value", "label": "Farbe"},
+        ],
+        "value_options": [("black", "Schwarz"), ("green", "Grün"), ("yellow", "Gelb"), ("blue", "Blau"), ("red", "Rot")],
         "help": (
-            "Optional: Stichwort=Farbe, kommagetrennt. Farben: black, green, yellow, blue, red. "
-            "Ohne Angabe gilt die eingebaute Zuordnung (Restmüll schwarz, Bio grün, Gelbe Tonne gelb, Papier blau)."
+            "Optional. Ohne Angabe gilt die eingebaute Zuordnung: Restmüll schwarz, Bio grün, "
+            "Gelbe Tonne gelb, Papier blau, Sperrmüll rot."
         ),
     },
 ]

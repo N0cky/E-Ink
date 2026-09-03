@@ -16,121 +16,86 @@ class SettingsValidationFlowTest(unittest.TestCase):
         self.client = server_module.app.test_client()
 
     @staticmethod
-    def _build_valid_form_data() -> dict[str, str]:
-        sections = server_module._build_settings_sections()
-        all_fields = server_module._all_fields_from_sections(sections)
-        current = dict(get_settings_values())
-        form_data: dict[str, str] = {}
-
-        for field in all_fields:
-            name = field["name"]
-            value = current.get(name)
-            if value in (None, ""):
-                value = field.get("default", "")
-            form_data[name] = str(value)
-
-        return form_data
+    def _all_error_text(response) -> str:
+        errors = (response.get_json() or {}).get("errors") or {}
+        return " | ".join(list(errors.get("fields", {}).values()) + list(errors.get("general", [])))
 
     def test_invalid_module_settings_block_save(self) -> None:
-        form_data = self._build_valid_form_data()
-        form_data["DWD_WEATHER_STATION_ID"] = "abc"
-
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
         ):
-            response = self.client.post("/settings", data=form_data)
+            response = self.client.put("/api/settings/dwd_weather", json={"values": {"DWD_WEATHER_STATION_ID": "abc"}})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Bitte Eingaben korrigieren", response.get_data(as_text=True))
-        self.assertIn("DWD-Station-ID: Bitte nur numerische Stations-IDs verwenden.", response.get_data(as_text=True))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("DWD_WEATHER_STATION_ID", response.get_json()["errors"]["fields"])
+        self.assertIn("numerische Stations-IDs", self._all_error_text(response))
         write_env.assert_not_called()
         apply_cfg.assert_not_called()
         render_image.assert_not_called()
 
     def test_gallery_enabled_without_paths_blocks_save(self) -> None:
-        form_data = self._build_valid_form_data()
-        idle_modules = [item for item in form_data.get("IDLE_MODULES", "").split(",") if item]
-        if "gallery" not in idle_modules:
-            idle_modules.append("gallery")
-        form_data["IDLE_MODULES"] = ",".join(idle_modules)
-        form_data["GALLERY_PATHS"] = ""
-
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
+            patch("app.config.get_settings_values", return_value={**get_settings_values(), "GALLERY_PATHS": ""}),
         ):
-            response = self.client.post("/settings", data=form_data)
+            response = self.client.put("/api/display", json={"content": [{"id": "gallery", "enabled": True}]})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Bitte Eingaben korrigieren", response.get_data(as_text=True))
-        self.assertIn(
-            "Bildordner: Bitte mindestens einen lokalen Ordner angeben, wenn Gallery aktiv ist.",
-            response.get_data(as_text=True),
-        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Bitte mindestens einen lokalen Ordner angeben", self._all_error_text(response))
+        self.assertIn("GALLERY_PATHS", response.get_json()["errors"]["fields"], "Fehler hängt am Feld")
         write_env.assert_not_called()
         apply_cfg.assert_not_called()
         render_image.assert_not_called()
 
-    def test_valid_settings_submit_redirects(self) -> None:
-        form_data = self._build_valid_form_data()
+    def test_valid_module_save_writes_and_renders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            form_data["GALLERY_PATHS"] = tmp
-
             with (
                 patch("app.server.write_env_settings") as write_env,
                 patch("app.server.apply_runtime_config") as apply_cfg,
                 patch("app.server.request_render") as render_image,
             ):
-                response = self.client.post("/settings", data=form_data, follow_redirects=False)
+                response = self.client.put("/api/settings/gallery", json={"values": {"GALLERY_PATHS": [{"path": tmp}]}})
 
-            self.assertEqual(response.status_code, 302)
-            self.assertIn("/settings?saved=1", response.headers.get("Location", ""))
+            self.assertEqual(response.status_code, 200, response.get_json())
             write_env.assert_called_once()
+            self.assertEqual(write_env.call_args[0][0]["GALLERY_PATHS"], tmp)
             apply_cfg.assert_called_once()
             render_image.assert_called_once()
 
     def test_steam_enabled_without_profile_or_key_blocks_save(self) -> None:
-        form_data = self._build_valid_form_data()
-        form_data["STEAM_MODULE_ENABLED"] = "true"
-        form_data["STEAM_PROFILE"] = ""
-        form_data["STEAM_API_KEY"] = ""
-
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
+            patch("app.config.get_settings_values", return_value={**get_settings_values(), "STEAM_PROFILE": "", "STEAM_API_KEY": ""}),
         ):
-            response = self.client.post("/settings", data=form_data)
+            response = self.client.put("/api/display", json={"live": [{"id": "steam", "enabled": True}]})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Steam-Profil: Bitte SteamID64, Vanity-Name oder Profil-URL angeben.", response.get_data(as_text=True))
-        self.assertIn("Steam Web API Key: Bitte einen gültigen API-Key hinterlegen.", response.get_data(as_text=True))
+        self.assertEqual(response.status_code, 400)
+        text = self._all_error_text(response)
+        self.assertIn("SteamID64, Vanity-Name oder Profil-URL", text)
+        self.assertIn("API-Key", text)
         write_env.assert_not_called()
         apply_cfg.assert_not_called()
         render_image.assert_not_called()
 
     def test_night_mode_fixed_module_must_be_active_idle_module(self) -> None:
-        form_data = self._build_valid_form_data()
-        form_data["NIGHT_MODE_ENABLED"] = "true"
-        form_data["NIGHT_MODE_IDLE_BEHAVIOR"] = "fixed"
-        form_data["NIGHT_MODE_FIXED_MODULE"] = "gallery"
-        form_data["IDLE_MODULES"] = "dwd_weather,tagesschau"
-
         with (
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
         ):
-            response = self.client.post("/settings", data=form_data)
+            response = self.client.put("/api/display", json={
+                "content": [{"id": "dwd_weather", "enabled": True}, {"id": "tagesschau", "enabled": True}, {"id": "gallery", "enabled": False}],
+                "night": {"enabled": True, "behavior": "fixed", "fixed_module": "gallery"},
+            })
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "Festes Nachtmodul: Das Modul muss auch in den aktiven Idle-Modulen enthalten sein.",
-            response.get_data(as_text=True),
-        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Das Modul muss auch in den aktiven Idle-Modulen enthalten sein", self._all_error_text(response))
         write_env.assert_not_called()
         apply_cfg.assert_not_called()
         render_image.assert_not_called()

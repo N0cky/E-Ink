@@ -22,14 +22,16 @@ log = get_logger(__name__)
 SETTINGS_FIELDS: list[dict] = [
     {
         "name":        "CALENDAR_ICS_URLS",
-        "label":       "ICS-Kalender",
-        "type":        "text",
+        "label":       "Kalender",
+        "type":        "list",
         "wide":        True,
-        "placeholder": "Familie|https://calendar.google.com/calendar/ical/…/basic.ics; Arbeit|https://…",
+        "item_fields": [
+            {"name": "label", "label": "Name", "placeholder": "Familie"},
+            {"name": "url",   "label": "ICS-Adresse", "placeholder": "https://calendar.google.com/calendar/ical/…/basic.ics", "wide": True},
+        ],
         "help": (
-            "Eine oder mehrere ICS-Adressen, getrennt durch Semikolon, optional mit Label 'Label|URL'. "
-            "Google: Kalender-Einstellungen → 'Privatadresse im iCal-Format'. Nextcloud: Kalender teilen → Link. "
-            "webcal:// wird automatisch zu https://."
+            "Eine Zeile pro Kalender. Google: Kalender-Einstellungen → 'Privatadresse im iCal-Format'. "
+            "Nextcloud: Kalender teilen → Link. webcal:// wird automatisch zu https://."
         ),
     },
     {

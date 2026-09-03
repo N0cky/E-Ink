@@ -23,11 +23,11 @@ SETTINGS_FIELDS: list[dict] = [
     {
         "name":        "GALLERY_PATHS",
         "label":       "Bildordner",
-        "type":        "text",
+        "type":        "list",
         "wide":        True,
         "default":     "",
-        "placeholder": r"C:\Bilder;D:\Frames",
-        "help":        "Ein oder mehrere lokale Ordner, getrennt durch Semikolon.",
+        "item_fields": [{"name": "path", "label": "Ordner", "placeholder": "/pictures oder C:\\Bilder", "wide": True}],
+        "help":        "Ein oder mehrere Ordner auf dem Server. Im Docker-Container muss der Ordner als Volume eingehängt sein.",
     },
     {
         "name":    "GALLERY_RECURSIVE",

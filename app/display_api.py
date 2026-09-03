@@ -207,15 +207,77 @@ def display_updates_from_payload(payload: dict) -> dict[str, str]:
 # Karten (Modul-Einstellungen)
 # ---------------------------------------------------------------------------
 
+def _split_list_value(raw: str, field: dict) -> list[dict[str, str]]:
+    """'Label|URL; URL' → [{"label": "Label", "url": "URL"}, {"label": "", "url": "URL"}]."""
+    item_fields = [f["name"] for f in field.get("item_fields", [])] or ["value"]
+    separator = field.get("separator", ";")
+    joiner = field.get("joiner", "|")
+    items: list[dict[str, str]] = []
+    for chunk in str(raw or "").replace("\n", separator).split(separator):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = [p.strip() for p in chunk.split(joiner)] if len(item_fields) > 1 else [chunk]
+        if len(item_fields) > 1 and len(parts) == 1:
+            # Nur der letzte Teil (z. B. die URL) ist Pflicht – Label fehlt
+            parts = [""] * (len(item_fields) - 1) + parts
+        items.append({name: (parts[i] if i < len(parts) else "") for i, name in enumerate(item_fields)})
+    return items
+
+
+def _join_list_value(items: list, field: dict) -> str:
+    item_fields = [f["name"] for f in field.get("item_fields", [])] or ["value"]
+    separator = field.get("separator", ";")
+    joiner = field.get("joiner", "|")
+    chunks: list[str] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            parts = [str(item.get(name, "") or "").strip() for name in item_fields]
+        else:
+            parts = [str(item or "").strip()]
+        if not any(parts):
+            continue
+        # Leere führende Teile (Label) weglassen, damit "URL" statt "|URL" entsteht
+        while len(parts) > 1 and not parts[0]:
+            parts = parts[1:]
+        chunks.append(joiner.join(parts))
+    return f"{separator} ".join(chunks)
+
+
+def _split_mapping_value(raw: str) -> list[dict[str, str]]:
+    pairs: list[dict[str, str]] = []
+    for chunk in str(raw or "").split(","):
+        if "=" not in chunk:
+            continue
+        key, value = chunk.split("=", 1)
+        if key.strip():
+            pairs.append({"key": key.strip(), "value": value.strip()})
+    return pairs
+
+
+def _join_mapping_value(pairs: list) -> str:
+    return ", ".join(f"{p.get('key', '').strip()}={p.get('value', '').strip()}"
+                     for p in (pairs or []) if isinstance(p, dict) and p.get("key", "").strip())
+
+
+# Zahlenfelder mit Sekunden werden in der Oberfläche als Dauer gezeigt (s/min/h)
+def _effective_type(field: dict) -> str:
+    ftype = field.get("type", "text")
+    if ftype == "number" and field["name"].endswith("_SECONDS"):
+        return "duration"
+    return ftype
+
+
 def _field_view(field: dict, values: dict[str, str]) -> dict[str, Any]:
     name = field["name"]
     raw = values.get(name)
     if raw in (None, ""):
         raw = field.get("default", "")
+    ftype = _effective_type(field)
     view = {
         "name":        name,
         "label":       field.get("label", name),
-        "type":        field.get("type", "text"),
+        "type":        ftype,
         "help":        field.get("help", ""),
         "placeholder": field.get("placeholder", ""),
         "wide":        bool(field.get("wide", False)),
@@ -223,15 +285,24 @@ def _field_view(field: dict, values: dict[str, str]) -> dict[str, Any]:
         "show_when":   field.get("show_when"),
         "link_href":   field.get("link_href", ""),
         "link_label":  field.get("link_label", ""),
+        "link_note":   field.get("link_note", ""),
         "min":         field.get("min"),
         "max":         field.get("max"),
+        "datalist_url": field.get("datalist_url", ""),
+        "item_fields": [dict(f) for f in field.get("item_fields", [])],
+        "value_options": [list(o) for o in field.get("value_options", [])],
         "managed_by_display": name in DISPLAY_MANAGED_KEYS,
+        "device": name in DEVICE_KEYS,
     }
-    if field.get("type") == "password":
+    if ftype == "password":
         view["value"] = ""
         view["is_set"] = bool(values.get(name, "").strip())
-    elif field.get("type") in ("checkbox_group", "priority_list"):
+    elif ftype in ("checkbox_group", "priority_list"):
         view["value"] = [x.strip() for x in str(raw).split(",") if x.strip()]
+    elif ftype == "list":
+        view["value"] = _split_list_value(str(raw), field)
+    elif ftype == "mapping":
+        view["value"] = _split_mapping_value(str(raw))
     else:
         view["value"] = str(raw)
     return view
@@ -261,6 +332,11 @@ def build_module_settings(module_id: str) -> dict[str, Any]:
         payload["summary"] = _safe(lambda: mod.summarize(env), "")
         payload["enabled"] = _module_enabled(mod, env)
         payload["kind"]    = "live" if mod.MODULE_PRIORITY < 10 else "content"
+        payload["enabled_key"] = mod.ENABLED_KEY or ""
+        # Der Ein/Aus-Schalter eines Live-Inhalts gehört auf die Anzeige-Seite
+        for view in payload["fields"]:
+            if mod.ENABLED_KEY and view["name"] == mod.ENABLED_KEY:
+                view["managed_by_display"] = True
     return payload
 
 
@@ -274,14 +350,19 @@ def module_updates_from_values(module_id: str, incoming: dict) -> dict[str, str]
         if name not in incoming:
             continue
         value = incoming[name]
-        if field.get("type") == "password":
+        ftype = field.get("type", "text")
+        if ftype == "password":
             text = str(value or "").strip()
             updates[name] = text if text else current.get(name, "")
-        elif field.get("type") in ("checkbox_group", "priority_list"):
+        elif ftype in ("checkbox_group", "priority_list"):
             if isinstance(value, (list, tuple)):
                 updates[name] = ",".join(str(v).strip() for v in value if str(v).strip())
             else:
                 updates[name] = str(value or "").strip()
+        elif ftype == "list":
+            updates[name] = _join_list_value(value, field) if isinstance(value, list) else str(value or "").strip()
+        elif ftype == "mapping":
+            updates[name] = _join_mapping_value(value) if isinstance(value, list) else str(value or "").strip()
         elif isinstance(value, bool):
             updates[name] = "true" if value else "false"
         else:
@@ -301,6 +382,54 @@ def map_errors_to_fields(errors: list[str], fields: list[dict]) -> dict[str, Any
         else:
             result["general"].append(error)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Export / Import
+# ---------------------------------------------------------------------------
+
+def _all_known_fields() -> list[dict]:
+    fields = list(FRAMEWORK_FIELDS)
+    for mod in _registry.get_modules():
+        fields.extend(mod.SETTINGS_FIELDS)
+    return fields
+
+
+def export_settings(include_secrets: bool = False) -> dict[str, Any]:
+    """Alle bekannten Settings als {key: value}. Passwörter nur auf Wunsch."""
+    values = get_settings_values()
+    fields = _all_known_fields()
+    secret_keys = {f["name"] for f in fields if f.get("type") == "password"}
+    exported = {
+        f["name"]: values.get(f["name"], "")
+        for f in fields
+        if include_secrets or f["name"] not in secret_keys
+    }
+    return {
+        "format": "pleximagee-ink-settings",
+        "version": 1,
+        "includes_secrets": include_secrets,
+        "values": exported,
+    }
+
+
+def import_updates(payload: dict) -> tuple[dict[str, str], list[str]]:
+    """Import-Datei → (Updates nur für bekannte Keys, ignorierte Keys)."""
+    values = payload.get("values", payload) if isinstance(payload, dict) else {}
+    if not isinstance(values, dict):
+        return {}, []
+    known = {f["name"]: f for f in _all_known_fields()}
+    updates: dict[str, str] = {}
+    ignored: list[str] = []
+    for key, value in values.items():
+        field = known.get(str(key))
+        if field is None:
+            ignored.append(str(key))
+            continue
+        if field.get("type") == "password" and not str(value or "").strip():
+            continue      # leere Passwörter im Import überschreiben nichts
+        updates[str(key)] = str(value if value is not None else "").strip()
+    return updates, ignored
 
 
 def probe_module(module_id: str) -> dict[str, Any]:

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% set active_page = "content" %}
+
+{% block title %}PlexImageE-Ink · Inhalte{% endblock %}
+{% block page_subtitle %}Inhalte{% endblock %}
+
+{% block extra_styles %}
+.intro { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; max-width: 72ch; line-height: 1.55; }
+.section-label { margin-top: 26px; }
+.mods { display: grid; gap: 12px; }
+.mod { overflow: hidden; }
+.mod-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 16px 18px; cursor: pointer; }
+.mod-head:hover { background: var(--surface3); }
+.mod-name { font-weight: 800; font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mod-sum { color: var(--muted); font-size: 12.5px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mod-actions { display: flex; gap: 6px; align-items: center; }
+.mod-body { display: none; border-top: 1px solid var(--border); padding: 18px; }
+.mod.open .mod-body { display: block; }
+.mod .caret { color: var(--muted); font-size: 12px; transition: transform .15s; }
+.mod.open .caret { transform: rotate(180deg); }
+.probe { font-size: 12.5px; color: var(--muted); }
+.probe.ok { color: var(--ok); font-weight: 700; }
+.probe.bad { color: var(--danger); font-weight: 700; }
+@media (max-width: 600px) { .mod-head { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<p class="intro">Jede Quelle hat ihre eigene Karte. Ob ein Inhalt auf dem Display erscheint, entscheidest du auf der <a href="/">Anzeige</a>. Hier stellst du ein, woher die Daten kommen.</p>
+
+<p class="section-label">Live-Inhalte · übernehmen das Display, solange etwas läuft</p>
+<div class="mods" id="liveMods"><div class="hint">Wird geladen …</div></div>
+
+<p class="section-label">Inhalte · wenn nichts läuft</p>
+<div class="mods" id="contentMods"><div class="hint">Wird geladen …</div></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    'use strict';
+    var esc = ui.esc;
+    var $ = function (id) { return document.getElementById(id); };
+
+    function chipFor(m) {
+        if (m.status.state === 'missing') return '<span class="chip warn">' + esc(m.status.reason || 'nicht konfiguriert') + '</span>';
+        if (m.status.state === 'error') return '<span class="chip danger">' + esc(m.status.reason || 'Fehler') + '</span>';
+        return m.enabled ? '<span class="chip ok">eingeschaltet</span>' : '<span class="chip">bereit, aus</span>';
+    }
+
+    function cardHtml(m) {
+        return '<div class="card mod" id="' + esc(m.id) + '" data-id="' + esc(m.id) + '">'
+            + '<div class="mod-head" role="button" tabindex="0" aria-expanded="false">'
+            + '<div><div class="mod-name">' + esc(m.name) + ' ' + chipFor(m) + '</div>' + (m.summary ? '<div class="mod-sum">' + esc(m.summary) + '</div>' : '') + '</div>'
+            + '<div class="mod-actions">' + (m.status.state !== 'missing' ? '<button class="btn small" type="button" data-preview="' + esc(m.id) + '">Vorschau</button>' : '') + '<span class="caret">▼</span></div>'
+            + '</div><div class="mod-body"><div class="hint">Wird geladen …</div></div></div>';
+    }
+
+    async function load() {
+        try {
+            var state = await ui.json('/api/display');
+            $('liveMods').innerHTML = state.live.map(cardHtml).join('') || '<div class="hint">Keine Live-Inhalte installiert.</div>';
+            $('contentMods').innerHTML = state.content.map(cardHtml).join('') || '<div class="hint">Keine Inhalte gefunden.</div>';
+            bindCards();
+            var wanted = location.hash.replace('#', '');
+            if (wanted) { var card = document.getElementById(wanted); if (card) { openCard(card); card.scrollIntoView({ block: 'start' }); } }
+        } catch (e) {
+            $('contentMods').innerHTML = '<div class="hint">Server nicht erreichbar.</div>';
+        }
+    }
+
+    function bindCards() {
+        document.querySelectorAll('.mod-head').forEach(function (head) {
+            head.addEventListener('click', function (e) { if (e.target.closest('button')) return; toggleCard(head.closest('.mod')); });
+            head.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCard(head.closest('.mod')); } });
+        });
+        document.querySelectorAll('[data-preview]').forEach(function (b) {
+            b.addEventListener('click', function () { window.open('/api/preview/' + encodeURIComponent(b.getAttribute('data-preview')) + '.png?device=1', '_blank', 'noopener'); });
+        });
+    }
+
+    function toggleCard(card) { if (card.classList.contains('open')) { card.classList.remove('open'); card.querySelector('.mod-head').setAttribute('aria-expanded', 'false'); } else openCard(card); }
+
+    async function openCard(card) {
+        card.classList.add('open');
+        card.querySelector('.mod-head').setAttribute('aria-expanded', 'true');
+        if (card.dataset.loaded) return;
+        card.dataset.loaded = '1';
+        var id = card.getAttribute('data-id');
+        var body = card.querySelector('.mod-body');
+        try {
+            var s = await ui.json('/api/settings/' + encodeURIComponent(id));
+            var visible = s.fields.filter(function (f) { return !f.managed_by_display && f.name !== s.enabled_key; });
+            body.innerHTML = '<div class="banner"></div><form class="mod-form">' + fields.renderGroups(visible, s.groups) + '</form>'
+                + '<div class="actions-row"><button class="btn primary" type="button" data-save>Speichern</button>'
+                + '<button class="btn" type="button" data-probe>Verbindung prüfen</button>'
+                + '<span class="state" data-state>Keine Änderungen</span><span class="probe" data-probe-result></span></div>';
+            var form = body.querySelector('.mod-form');
+            var stateEl = body.querySelector('[data-state]');
+            fields.bind(form, function () { stateEl.textContent = 'Nicht gespeicherte Änderungen'; stateEl.classList.add('dirty'); });
+            body.querySelector('[data-save]').addEventListener('click', function () { save(card, id, form, this, stateEl); });
+            body.querySelector('[data-probe]').addEventListener('click', function () { probe(id, this, body.querySelector('[data-probe-result]')); });
+            // Ein/Aus-Felder gibt es hier nicht mehr – das macht die Anzeige-Seite
+        } catch (e) {
+            body.innerHTML = '<div class="hint">Konnte die Einstellungen nicht laden: ' + esc(e.message) + '</div>';
+        }
+    }
+
+    async function save(card, id, form, btn, stateEl) {
+        btn.disabled = true; btn.textContent = 'Speichert …';
+        var banner = card.querySelector('.banner');
+        banner.classList.remove('show'); banner.innerHTML = '';
+        try {
+            var result = await ui.json('/api/settings/' + encodeURIComponent(id), { method: 'PUT', body: { values: fields.collect(form) } });
+            fields.clearErrors(form);
+            stateEl.textContent = 'Gespeichert'; stateEl.classList.remove('dirty');
+            ui.toast('Gespeichert. Das Display holt sich das neue Bild beim nächsten Aufwachen.', 'ok', 4000);
+            // Kopfzeile (Chip, Zusammenfassung) auffrischen
+            var s = result.settings;
+            card.querySelector('.mod-name').innerHTML = esc(s.name) + ' ' + chipFor({ status: s.status, enabled: s.enabled });
+            var sum = card.querySelector('.mod-sum'); if (sum) sum.textContent = s.summary || '';
+        } catch (e) {
+            var general = fields.showErrors(form, e.data && e.data.errors);
+            if (general.length) { banner.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>'; banner.classList.add('show'); }
+            ui.toast('Nicht gespeichert', 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Speichern';
+    }
+
+    async function probe(id, btn, out) {
+        btn.disabled = true; btn.textContent = 'Prüft …'; out.textContent = ''; out.className = 'probe';
+        try {
+            var r = await ui.json('/api/probe/' + encodeURIComponent(id), { method: 'POST' });
+            out.textContent = r.message; out.className = 'probe ' + (r.ok ? 'ok' : 'bad');
+        } catch (e) { out.textContent = 'Prüfung fehlgeschlagen: ' + e.message; out.className = 'probe bad'; }
+        btn.disabled = false; btn.textContent = 'Verbindung prüfen';
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

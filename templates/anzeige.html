@@ -10,9 +10,6 @@
 
 {% block extra_styles %}
 .layout { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
-.card { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; }
-.card-body { padding: 18px; }
-.card-title { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 12px; }
 .stack { display: grid; gap: 16px; }
 
 /* ── Bild ── */
@@ -293,7 +290,7 @@
         var heightHtml = isLive ? '' :
             '<span class="height ' + (dash && m.enabled ? '' : 'hidden') + '"><input type="number" min="5" max="100" placeholder="auto" value="' + (m.height ? esc(m.height) : '') + '" data-id="' + esc(m.id) + '" aria-label="Höhe in Prozent"' + (m.tile_supported ? '' : ' disabled title="Keine Kachel-Darstellung"') + '> %</span>';
         var actions = '<span class="row-actions">'
-            + (m.status.state === 'missing' ? '<a class="btn small" href="/settings#section-' + esc(m.id) + '">Einrichten</a>' : '<button class="btn small" type="button" data-preview="' + esc(m.id) + '">Vorschau</button>')
+            + (m.status.state === 'missing' ? '<a class="btn small" href="/inhalte#' + esc(m.id) + '">Einrichten</a>' : '<button class="btn small" type="button" data-preview="' + esc(m.id) + '">Vorschau</button>')
             + '</span>';
         var noTile = (dash && !isLive && m.enabled && !m.tile_supported) ? ' <span class="chip warn">keine Kachel</span>' : '';
         return '<div class="row ' + (m.enabled ? '' : 'off') + (isLive ? ' nodrag' : '') + '" draggable="' + (isLive ? 'false' : 'true') + '" data-id="' + esc(m.id) + '">'

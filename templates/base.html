@@ -272,6 +272,49 @@
         .toast.ok { border-color: rgba(74,222,128,.4); }
         .toast.error { border-color: rgba(239,68,68,.45); }
 
+        /* ── Formulare (fields.js) ── */
+        .card { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; }
+        .card-body { padding: 18px; }
+        .card-title { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 12px; }
+        .group { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+        .group:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+        .group-title { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+        .group-desc { margin-bottom: 12px; max-width: 72ch; }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .field { background: var(--surface3); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .field.wide { grid-column: 1 / -1; }
+        .field.is-hidden { display: none; }
+        .field.has-error { border-color: var(--danger); }
+        .field:focus-within { border-color: var(--accent); }
+        .field-label { font-size: 12.5px; font-weight: 800; }
+        .field input[type="text"], .field input[type="number"], .field input[type="password"], .field select {
+            width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border-strong);
+            background: var(--surface2); color: var(--text); font-family: inherit; font-size: 13.5px;
+        }
+        .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+        .field .pw { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+        .field .duration { display: grid; grid-template-columns: 1fr 130px; gap: 8px; }
+        .field .checks { display: flex; flex-wrap: wrap; gap: 8px; }
+        .field .check { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface2); font-size: 13px; cursor: pointer; }
+        .field .check input { accent-color: var(--accent); width: 15px; height: 15px; }
+        .field .prio { display: grid; gap: 6px; }
+        .field .prio-item { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); }
+        .field .prio-item.dragging { opacity: .4; }
+        .field .prio-item .handle { color: var(--muted); cursor: grab; }
+        .field .prio-item .rank { font-size: 11px; font-weight: 800; color: var(--accent); }
+        .field .list-rows { display: grid; gap: 8px; margin-bottom: 8px; }
+        .field .list-row { display: grid; gap: 8px; align-items: center; }
+        .field .list-row input, .field .list-row select { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); font-family: inherit; font-size: 13px; }
+        .field-link { font-size: 12px; color: var(--accent); text-decoration: none; font-weight: 700; }
+        .field-link:hover { text-decoration: underline; }
+        .actions-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+        .actions-row .state { font-size: 12.5px; color: var(--muted); }
+        .actions-row .state.dirty { color: var(--warn); font-weight: 800; }
+        .banner { display: none; border-radius: 14px; padding: 12px 16px; font-size: 13px; font-weight: 700; background: rgba(239,68,68,.10); color: var(--danger); border: 1px solid rgba(239,68,68,.22); margin-bottom: 12px; }
+        .banner.show { display: block; }
+        .banner ul { margin: 6px 0 0; padding-left: 18px; }
+        @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } .field .duration { grid-template-columns: 1fr; } }
+
         .field-error { color: var(--danger); font-size: 12px; font-weight: 700; margin-top: 4px; }
         input.invalid, select.invalid { border-color: var(--danger) !important; }
         .hint { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
@@ -306,8 +349,9 @@
         <div class="topbar-center">
             <nav class="nav-links" aria-label="Hauptnavigation">
                 <a href="/" class="nav-link {% if active_page == 'display' %}active{% endif %}">Anzeige</a>
-                <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">Einstellungen</a>
-                <a href="/logs" class="nav-link {% if active_page == 'logs' %}active{% endif %}">Logs</a>
+                <a href="/inhalte" class="nav-link {% if active_page == 'content' %}active{% endif %}">Inhalte</a>
+                <a href="/geraet" class="nav-link {% if active_page == 'device' %}active{% endif %}">Gerät</a>
+                <a href="/system" class="nav-link {% if active_page == 'system' %}active{% endif %}">System</a>
             </nav>
             {% block topbar_center %}{% endblock %}
         </div>
@@ -327,6 +371,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='ui.js') }}"></script>
+<script src="{{ url_for('static', filename='fields.js') }}"></script>
 <script>
 (function () {
     var html = document.documentElement;

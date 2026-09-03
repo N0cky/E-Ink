@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% set active_page = "device" %}
+
+{% block title %}PlexImageE-Ink · Gerät{% endblock %}
+{% block page_subtitle %}Gerät{% endblock %}
+
+{% block extra_styles %}
+.cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 5fr); gap: 20px; align-items: start; }
+.stack { display: grid; gap: 16px; }
+.themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.theme { border: 2px solid var(--border); border-radius: 14px; overflow: hidden; cursor: pointer; background: var(--surface3); }
+.theme.selected { border-color: var(--accent); }
+.theme img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--surface3); }
+.theme .name { font-size: 12px; font-weight: 800; padding: 8px 10px; display: flex; justify-content: space-between; }
+.kv { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.kv:last-child { border-bottom: 0; }
+.kv .k { color: var(--muted); }
+.kv .v { font-weight: 700; text-align: right; word-break: break-all; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+details[open] summary { margin-bottom: 8px; }
+@media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div class="cols">
+    <div class="stack">
+        <div class="card"><div class="card-body">
+            <div class="card-title">Display</div>
+            <div class="banner" id="deviceBanner"></div>
+            <form id="deviceForm"><div class="hint">Wird geladen …</div></form>
+            <div class="card-title" style="margin-top:18px">Theme · so sieht das aktuelle Bild in jeder Variante aus</div>
+            <div class="themes" id="themes"></div>
+            <div class="actions-row">
+                <button class="btn primary" type="button" id="saveDevice">Speichern</button>
+                <span class="state" id="deviceState">Keine Änderungen</span>
+            </div>
+        </div></div>
+    </div>
+
+    <div class="stack">
+        <div class="card"><div class="card-body">
+            <div class="card-title">Client</div>
+            <div id="client"><div class="hint">Wird geladen …</div></div>
+        </div></div>
+        <div class="card"><div class="card-body">
+            <details>
+                <summary>Details für Bastler</summary>
+                <div id="details"></div>
+            </details>
+        </div></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    'use strict';
+    var esc = ui.esc;
+    var $ = function (id) { return document.getElementById(id); };
+    var THEMES = [['dark', 'Dark'], ['light', 'Light'], ['eink', 'E-Ink']];
+    var currentTheme = '';
+
+    async function loadForm() {
+        var s = await ui.json('/api/settings/framework');
+        var device = s.fields.filter(function (f) { return f.device; });
+        var themeField = device.find(function (f) { return f.name === 'DISPLAY_THEME'; });
+        currentTheme = themeField ? themeField.value : 'dark';
+        var form = $('deviceForm');
+        form.innerHTML = fields.renderGroups(device, []);
+        // Theme wird über die Vorschaukacheln gewählt – das Select bleibt als Fallback sichtbar
+        fields.bind(form, function () { $('deviceState').textContent = 'Nicht gespeicherte Änderungen'; $('deviceState').classList.add('dirty'); });
+        var themeSelect = form.querySelector('[data-field="DISPLAY_THEME"]');
+        if (themeSelect) themeSelect.addEventListener('change', function () { currentTheme = themeSelect.value; markThemes(); });
+        renderThemes();
+    }
+
+    function renderThemes() {
+        var state = window.__display || null;
+        var active = state && state.current && state.current.module_id ? state.current.module_id : '';
+        $('themes').innerHTML = THEMES.map(function (t) {
+            var src = active && active !== 'none' ? '/api/preview/' + encodeURIComponent(active) + '.png?theme=' + t[0] + '&device=1' : '';
+            return '<div class="theme" data-theme="' + t[0] + '">' + (src ? '<img alt="Vorschau ' + esc(t[1]) + '" loading="lazy" src="' + esc(src) + '">' : '<div class="hint" style="padding:20px">Kein Bild</div>')
+                + '<div class="name"><span>' + esc(t[1]) + '</span><span class="chip" data-chip="' + t[0] + '"></span></div></div>';
+        }).join('');
+        markThemes();
+        document.querySelectorAll('.theme').forEach(function (el) {
+            el.addEventListener('click', function () {
+                currentTheme = el.getAttribute('data-theme');
+                var sel = document.querySelector('[data-field="DISPLAY_THEME"]');
+                if (sel) { sel.value = currentTheme; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+                markThemes();
+            });
+        });
+    }
+
+    function markThemes() {
+        document.querySelectorAll('.theme').forEach(function (el) {
+            var on = el.getAttribute('data-theme') === currentTheme;
+            el.classList.toggle('selected', on);
+            var chip = el.querySelector('[data-chip]'); chip.textContent = on ? 'gewählt' : ''; chip.className = 'chip' + (on ? ' accent' : '');
+        });
+    }
+
+    $('saveDevice').addEventListener('click', async function () {
+        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
+        var form = $('deviceForm'); var banner = $('deviceBanner'); banner.classList.remove('show'); banner.innerHTML = '';
+        try {
+            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
+            fields.clearErrors(form);
+            $('deviceState').textContent = 'Gespeichert'; $('deviceState').classList.remove('dirty');
+            ui.toast('Gespeichert. Das Bild wird neu erzeugt.', 'ok', 4000);
+            setTimeout(loadClient, 3000);
+        } catch (e) {
+            var general = fields.showErrors(form, e.data && e.data.errors);
+            if (general.length) { banner.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>'; banner.classList.add('show'); }
+            ui.toast('Nicht gespeichert', 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Speichern';
+    });
+
+    function kv(k, v) { return '<div class="kv"><span class="k">' + esc(k) + '</span><span class="v">' + v + '</span></div>'; }
+
+    async function loadClient() {
+        try {
+            var s = await ui.json('/api/display');
+            var st = await ui.json('/api/status');
+            window.__display = s;
+            var d = s.device;
+            var html = '';
+            if (d.device_id) {
+                var stale = d.seconds_since_ack != null && d.seconds_since_ack > Math.max(3 * s.next.seconds, 900);
+                html += kv('Gerät', esc(d.device_id) + (d.remote ? ' <span class="hint">' + esc(d.remote) + '</span>' : ''));
+                html += kv('Zuletzt gemeldet', esc(ui.ago(d.seconds_since_ack)) + (stale ? ' <span class="chip warn">länger nicht gesehen</span>' : ' <span class="chip ok">verbunden</span>'));
+                html += kv('Zeigt', d.hash_matches ? '<span class="chip ok">das aktuelle Bild</span>' : '<span class="chip warn">ein älteres Bild</span>');
+            } else {
+                html += '<div class="hint">Noch kein Gerät hat sich gemeldet. Sobald der ESP32 das erste Bild bestätigt, steht er hier.</div>';
+            }
+            html += kv('Nächstes Aufwachen', 'in ' + esc(ui.mmss(s.next.seconds)) + ' <span class="hint">· ' + esc(s.next.reason) + '</span>');
+            html += kv('Aktuelles Bild', esc(s.current.module_name) + ' <span class="hint">um ' + esc(ui.fmtTime(s.current.rendered_at)) + '</span>');
+            $('client').innerHTML = html;
+
+            $('details').innerHTML = kv('Bild-Hash', '<span class="mono">' + esc(s.current.hash || '–') + '</span>')
+                + kv('State-Key', '<span class="mono">' + esc(s.current.state || '–') + '</span>')
+                + kv('Format', esc((s.current.format || '').toUpperCase()))
+                + kv('Server prüft alle', esc(st.background_poll_sec + ' s'))
+                + kv('Endpunkte', ['/current.png', '/current.bmp', '/meta.json', '/hash', '/health'].map(function (p) { return '<a class="mono" href="' + p + '" target="_blank" rel="noreferrer">' + p + '</a>'; }).join('<br>'));
+            if (!document.querySelector('.theme img')) renderThemes();
+        } catch (e) { $('client').innerHTML = '<div class="hint">Server nicht erreichbar.</div>'; }
+    }
+
+    loadForm().then(loadClient);
+    setInterval(loadClient, 30000);
+})();
+</script>
+{% endblock %}

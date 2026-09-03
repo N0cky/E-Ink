@@ -121,13 +121,22 @@ SETTINGS_FIELDS = [
 Typische Feldtypen im Projekt:
 
 - `text`
-- `password`
-- `number`
+- `password` (wird nie an die Oberflaeche zurueckgegeben; leer speichern = Wert behalten)
+- `number` (endet der Name auf `_SECONDS`, zeigt die Oberflaeche das Feld als Dauer mit Einheit)
 - `select`
 - `checkbox_group`
-- `priority_list`
+- `priority_list` (Auswahl plus Reihenfolge per Ziehen)
+- `list`: mehrere Zeilen mit Unterfeldern, gespeichert als `"a|b; c|d"`.
+  `item_fields: [{"name": "label", "label": "Name"}, {"name": "url", "label": "Adresse", "wide": True}]`,
+  optional `separator` (Standard `;`) und `joiner` (Standard `|`). Fehlt ein fuehrender Teil, wird nur
+  der Rest gespeichert (`"URL"` statt `"|URL"`). Eine Spalte → einfache Liste `"a; b"`.
+- `mapping`: Stichwort → Wert, gespeichert als `"k=v, k=v"`. Mit `value_options: [(wert, label), …]`
+  wird der Wert zur Auswahl.
 
-Optional koennen Felder `default`, `min`, `max`, `placeholder`, `help`, `options`, `datalist_url` enthalten.
+Optional koennen Felder `default`, `min`, `max`, `placeholder`, `help`, `options`, `datalist_url`,
+`show_when` (`{"ANDERES_FELD": "wert"}`), `link_href`/`link_label` enthalten. Ein Modul liest die
+Werte weiterhin als String ueber `get_setting()`; die Listen- und Zuordnungsformate parst es selbst
+(siehe `modules/garbage/data_source.py` als Beispiel).
 
 
 ## Settings gruppieren

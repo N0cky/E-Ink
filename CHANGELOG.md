@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 
 ### Added
 
+- New web interface in four areas: **Anzeige** (live image, the programme with one switch per content, drag-and-drop order, tile heights, previews, night plan), **Inhalte** (one card per source, save per card, errors at the field, connection test), **Gerät** (display settings with theme previews, ESP32 status), **System** (events view, time zone, backup and restore, module reload)
+- JSON API for the interface: `/api/display`, `/api/settings/<module>`, `/api/probe/<module>`, `/api/settings/export` and `/api/settings/import`, `/api/logs?events=1`
+- Module hooks `describe_status()`, `summarize()`, `probe()` and `ENABLED_KEY`; field types `list`, `mapping` and duration display for seconds fields
 - `DISPLAY_THEME=eink`: flat theme using only the six Spectra 6 colours, no blur, gradients or shadows – nothing turns into dithering noise on the panel
 - Dashboard mode (`IDLE_LAYOUT=dashboard`, `DASHBOARD_TILES`): several idle modules stacked as tiles in one image; new optional module hook `render_tile()`
 - `Müllabfuhr` module: municipal ICS collection calendars with bin colours, `{year}` placeholder in the URL, several addresses

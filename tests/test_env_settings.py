@@ -94,17 +94,21 @@ class PasswordFieldTest(unittest.TestCase):
         self.assertEqual(updates["PLEX_TOKEN"], "geheim")
         self.assertEqual(updates["STEAM_API_KEY"], "neu")
 
-    def test_settings_page_never_renders_secret_values(self) -> None:
+    def test_settings_api_never_returns_secret_values(self) -> None:
+        import app.display_api as api
         client = server.app.test_client()
-        with patch.object(server, "get_settings_values", return_value={
+        with patch.object(api, "get_settings_values", return_value={
             **config.get_settings_values(),
             "PLEX_TOKEN": "SUPERSECRETTOKEN123",
             "STEAM_API_KEY": "STEAMKEYXYZ",
         }):
-            html = client.get("/settings").get_data(as_text=True)
-        self.assertNotIn("SUPERSECRETTOKEN123", html)
-        self.assertNotIn("STEAMKEYXYZ", html)
-        self.assertIn("leer lassen zum Beibehalten", html)
+            plex = client.get("/api/settings/plex").get_data(as_text=True)
+            steam = client.get("/api/settings/steam").get_data(as_text=True)
+            export = client.get("/api/settings/export").get_data(as_text=True)
+        for body in (plex, steam, export):
+            self.assertNotIn("SUPERSECRETTOKEN123", body)
+            self.assertNotIn("STEAMKEYXYZ", body)
+        self.assertIn('"is_set":true', plex.replace(" ", ""))
 
 
 class RedactSecretsTest(unittest.TestCase):
