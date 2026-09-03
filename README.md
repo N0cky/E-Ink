@@ -1,10 +1,10 @@
-# PlexImageE-Ink
+# Inkwall
 
 <p align="center">
-  <img src="static/wordmark.svg" alt="PlexImageE-Ink" width="520">
+  <img src="static/wordmark.svg" alt="Inkwall" width="520">
 </p>
 
-PlexImageE-Ink is a self-hosted image server for E-Ink displays.
+Inkwall is a self-hosted image server for E-Ink displays.
 
 It renders active live content like Plex playback or the current Steam game, plus configurable idle content like weather, news, and gallery images into a display-ready image that can be fetched by an ESP32 or another lightweight client. The client only needs to wake up briefly, check whether the image changed, download it if needed, and go back to sleep.
 
@@ -73,7 +73,7 @@ Supported output modes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/N0cky/E-Ink.git
+git clone https://github.com/N0cky/inkwall.git
 cd E-Ink
 
 # Create and activate a virtual environment
@@ -157,13 +157,13 @@ Persistent directories:
 ### Direct Docker Usage
 
 ```bash
-docker build -t pleximagee-ink .
+docker build -t inkwall .
 docker run --rm -p 8787:8787 \
-  -e PLEXINK_CONFIG_FILE=/config/settings.env \
+  -e INKWALL_CONFIG_FILE=/config/settings.env \
   -v ./config:/config \
   -v ./data/output:/output \
   -v ./logs:/logs \
-  pleximagee-ink
+  inkwall
 ```
 
 ### Production Notes
@@ -181,8 +181,8 @@ For local development, `python app/server.py` remains the simplest path. In Dock
 ### Security Notes
 
 - The web UI has **no authentication by default**. It is meant for a trusted home network.
-- Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/current.epd`, `/ack`, `/firmware.json`, `/firmware.bin`, `/health`) stay open so the device does not need credentials.
-- The Gallery module reads image folders from the server's file system, and the folder list is editable in the web UI. Set `PLEXINK_GALLERY_ROOTS` (container environment, e.g. `/gallery`; several roots separated by `;`) to restrict gallery folders to those roots: folders outside are rejected on save, skipped when scanning, and symlinks that lead out of the roots are ignored. Unset, any folder is allowed (home network default).
+- Set `INKWALL_UI_PASSWORD` as a container environment variable (the old `PLEXINK_` prefix keeps working for every variable) to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/current.epd`, `/ack`, `/firmware.json`, `/firmware.bin`, `/health`) stay open so the device does not need credentials.
+- The Gallery module reads image folders from the server's file system, and the folder list is editable in the web UI. Set `INKWALL_GALLERY_ROOTS` (container environment, e.g. `/gallery`; several roots separated by `;`) to restrict gallery folders to those roots: folders outside are rejected on save, skipped when scanning, and symlinks that lead out of the roots are ignored. Unset, any folder is allowed (home network default).
 - Secrets such as the Plex token or the Steam API key are never written into the settings page HTML. The field shows as empty; leaving it empty on save keeps the stored value.
 - Query parameters that carry secrets (`X-Plex-Token`, `key`, `token`, …) are masked in every log line.
 - Values in `config/settings.env` are written quoted when needed and read without variable interpolation. Settings are never exported to the process environment.
@@ -213,13 +213,13 @@ Typical Unraid mapping:
 - Port:
   - `8787` container -> `8787` host
 - Environment:
-  - `PLEXINK_CONFIG_FILE=/config/settings.env` (already the image default)
-  - `PLEXINK_UI_PASSWORD=...` (optional, protects the web UI with Basic Auth)
-  - `PLEXINK_GALLERY_ROOTS=/gallery` (optional, limits Gallery folders to the mounted photo share)
+  - `INKWALL_CONFIG_FILE=/config/settings.env` (already the image default)
+  - `INKWALL_UI_PASSWORD=...` (optional, protects the web UI with Basic Auth)
+  - `INKWALL_GALLERY_ROOTS=/gallery` (optional, limits Gallery folders to the mounted photo share)
 - AppData / volumes:
-  - `/mnt/user/appdata/pleximagee-ink/config` -> `/config`
-  - `/mnt/user/appdata/pleximagee-ink/output` -> `/output`
-  - `/mnt/user/appdata/pleximagee-ink/logs` -> `/logs`
+  - `/mnt/user/appdata/inkwall/config` -> `/config`
+  - `/mnt/user/appdata/inkwall/output` -> `/output`
+  - `/mnt/user/appdata/inkwall/logs` -> `/logs`
 
 Keep the main runtime configuration in `/config/settings.env`.
 
@@ -244,7 +244,7 @@ All settings can be managed through the web UI (`/` for the programme, `/inhalte
 
 Config file lookup:
 
-1. `PLEXINK_CONFIG_FILE`
+1. `INKWALL_CONFIG_FILE`
 2. `./config/settings.env`
 
 Recommended setup for all environments:
@@ -325,13 +325,13 @@ When settings are changed through the web UI, the application writes them back t
 ## Project Structure
 
 ```
-PlexImageE-Ink/
+Inkwall/
 │
 ├── app/                        # Framework core (no module-specific code)
 │   ├── server.py               # Flask server, render loop, and API routes
 │   ├── config.py               # Configuration, RuntimeConfig, and env-file I/O
 │   ├── logger.py               # JSONL + console logging with secret masking
-│   ├── module_base.py          # PlexInkModule base class for all modules
+│   ├── module_base.py          # InkwallModule base class for all modules
 │   ├── module_registry.py      # Module auto-discovery and hot reload
 │   ├── module_services.py      # ModuleRenderServices (size, theme, fonts)
 │   ├── http_client.py          # Shared HTTP client, image download + cache
@@ -422,7 +422,7 @@ modules/
 from __future__ import annotations
 from typing import Any
 from PIL import Image, ImageDraw
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -465,7 +465,7 @@ SETTINGS_GROUPS: list[dict] = [
 
 # Module implementation
 
-class MyModule(PlexInkModule):
+class MyModule(InkwallModule):
     MODULE_ID          = "my_module"             # unique ID, lowercase + underscores
     MODULE_NAME        = "My Module"            # display name in the web UI
     MODULE_DESCRIPTION = "Short description."
@@ -561,7 +561,7 @@ For larger modules, it makes sense to split fetching and rendering into separate
 ```
 modules/
 └── my_module/
-    ├── __init__.py       # PlexInkModule class + module = MyModule()
+    ├── __init__.py       # InkwallModule class + module = MyModule()
     ├── data_source.py    # API calls, parsing, caching
     └── renderer.py       # PIL rendering helpers
 ```
@@ -593,7 +593,7 @@ These helpers from the framework are available inside modules:
 
 ## ESP32 Client
 
-The sketch in `esp32/PlexEInk/` connects to the server over Wi-Fi, periodically checks `/meta.json`, and downloads the image only when the hash changed. The suggested sleep interval also comes directly from the server through `next_wake_sec`.
+The sketch in `esp32/Inkwall/` connects to the server over Wi-Fi, periodically checks `/meta.json`, and downloads the image only when the hash changed. The suggested sleep interval also comes directly from the server through `next_wake_sec`.
 
 `next_wake_sec` is intentionally modular:
 

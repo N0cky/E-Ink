@@ -1,5 +1,5 @@
 """
-Plex-Modul für PlexImageE-Ink.
+Plex-Modul für Inkwall.
 
 Prioritätsmodul (MODULE_PRIORITY = 0): wird angezeigt sobald eine aktive
 Plex-Wiedergabe erkannt wird – überschreibt alle Idle-Module.
@@ -15,7 +15,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -158,7 +158,7 @@ SETTINGS_GROUPS: list[dict] = [
 # Modul-Implementierung
 # ---------------------------------------------------------------------------
 
-class PlexModule(PlexInkModule):
+class PlexModule(InkwallModule):
     MODULE_ID          = "plex"
     MODULE_NAME        = "Plex"
     MODULE_DESCRIPTION = (

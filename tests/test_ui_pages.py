@@ -90,7 +90,7 @@ class ExportImportTest(unittest.TestCase):
         with patch.object(api, "get_settings_values", return_value={**config.get_settings_values(), "PLEX_TOKEN": "geheim", "RENDER_WIDTH": "1200"}):
             plain = self.client.get("/api/settings/export").get_json()
             full = self.client.get("/api/settings/export?secrets=1").get_json()
-        self.assertEqual(plain["format"], "pleximagee-ink-settings")
+        self.assertEqual(plain["format"], "inkwall-settings")
         self.assertNotIn("PLEX_TOKEN", plain["values"])
         self.assertEqual(plain["values"]["RENDER_WIDTH"], "1200")
         self.assertEqual(full["values"]["PLEX_TOKEN"], "geheim")

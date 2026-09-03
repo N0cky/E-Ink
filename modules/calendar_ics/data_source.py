@@ -412,7 +412,7 @@ def fetch_ics_events(url: str, force_refresh: bool = False) -> list[dict] | None
             "text": entry.get("text", "") if entry else "",
         }
     try:
-        response = HTTP_SESSION.get(url, timeout=30, headers={"User-Agent": "PlexImageE-Ink/1.0"})
+        response = HTTP_SESSION.get(url, timeout=30, headers={"User-Agent": "Inkwall/0.2"})
         response.raise_for_status()
         text = response.text
         events = parse_ics_events(text)

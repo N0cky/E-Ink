@@ -1,5 +1,5 @@
 """
-DWD-Wetter-Modul für PlexImageE-Ink.
+DWD-Wetter-Modul für Inkwall.
 
 Idle-Modul (MODULE_PRIORITY = 100): wird angezeigt wenn kein Prioritätsmodul
 (z. B. Plex) aktiven Inhalt meldet.
@@ -14,7 +14,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.module_services import ModuleRenderServices
 from app.logger import get_logger
 
@@ -197,7 +197,7 @@ SETTINGS_GROUPS: list[dict] = [
 # Modul-Implementierung
 # ---------------------------------------------------------------------------
 
-class DWDWeatherModule(PlexInkModule):
+class DWDWeatherModule(InkwallModule):
     MODULE_ID          = "dwd_weather"
     MODULE_NAME        = "DWD Wetter"
     MODULE_DESCRIPTION = (

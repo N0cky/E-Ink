@@ -290,7 +290,7 @@ def fetch_ics_events(url: str, force_refresh: bool = False) -> list[dict] | None
         }
 
     try:
-        response = HTTP_SESSION.get(url, timeout=30, headers={"User-Agent": "PlexImageE-Ink/1.0"})
+        response = HTTP_SESSION.get(url, timeout=30, headers={"User-Agent": "Inkwall/0.2"})
         status = getattr(response, "status_code", 200)
         if status == 404:
             with _LOCK:

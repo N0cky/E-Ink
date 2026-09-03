@@ -1,5 +1,5 @@
 """
-Tests für die Gallery-Freigabe (PLEXINK_GALLERY_ROOTS): ohne Wurzeln keine
+Tests für die Gallery-Freigabe (INKWALL_GALLERY_ROOTS): ohne Wurzeln keine
 Einschränkung, mit Wurzeln werden fremde Ordner beim Speichern abgelehnt,
 beim Scannen übersprungen und im Status gemeldet.
 """

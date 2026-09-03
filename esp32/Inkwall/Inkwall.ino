@@ -1,5 +1,5 @@
 /*
- * PlexEInk – ESP32-S3 Firmware
+ * Inkwall – ESP32-S3 Firmware
  * Waveshare 13.3″ Spectra 6 (EPD_13IN3E) via HTTP-Polling
  *
  * Server-Einstellung (Python):
@@ -61,7 +61,7 @@
 #else
 #define FIRMWARE_VERSION "1.2.3"
 #endif
-#define FW_MARKER_PREFIX "PLEXEINK_FW_VERSION="
+#define FW_MARKER_PREFIX "INKWALL_FW_VERSION="
 const char FW_VERSION_MARKER[] __attribute__((used)) = FW_MARKER_PREFIX FIRMWARE_VERSION;
 static const char* firmwareVersionFromMarker() { return FW_VERSION_MARKER + sizeof(FW_MARKER_PREFIX) - 1; }
 
@@ -99,7 +99,7 @@ struct OtaMemory {
     uint8_t  rollbackReported;
 };
 static OtaMemory otaMemory;
-static const char* OTA_NVS_NAMESPACE = "plexeink";
+static const char* OTA_NVS_NAMESPACE = "plexeink";   // bewusst der alte Name: sonst vergisst das Gerät sein OTA-Gedächtnis
 
 static void otaMemoryLoad() {
     memset(&otaMemory, 0, sizeof(otaMemory));
@@ -204,7 +204,7 @@ void setup() {
         esp_task_wdt_reconfigure(&wdt);
         esp_task_wdt_add(NULL);
     }
-    logf("== PlexEInk %s Boot #%lu (%s) ==", firmwareVersionFromMarker(), (unsigned long)bootCount, wakeReasonText());
+    logf("== Inkwall %s Boot #%lu (%s) ==", firmwareVersionFromMarker(), (unsigned long)bootCount, wakeReasonText());
     logf("PSRAM frei: %u KB", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
     {
         // Welcher App-Slot laeuft, und in welchem OTA-Zustand sind beide Slots?
@@ -604,7 +604,7 @@ static void showSetupPage() {
     if (!fb) return;
     fbFill(fb, EPD_COLOR_WHITE);
     fbFillRect(fb, 0, 0, EPD_WIDTH, 120, EPD_COLOR_BLACK);
-    fbDrawText(fb, 40, 14, "PlexEInk – nicht eingerichtet", FONT_L, EPD_COLOR_WHITE);
+    fbDrawText(fb, 40, 14, "Inkwall – nicht eingerichtet", FONT_L, EPD_COLOR_WHITE);
     fbDrawText(fb, 40, 74, (String("Firmware ") + FIRMWARE_VERSION).c_str(), FONT_S, EPD_COLOR_WHITE);
     int y = 200;
     const char* lines[] = {

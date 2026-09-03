@@ -1,5 +1,5 @@
 """
-Steam-Modul für PlexImageE-Ink.
+Steam-Modul für Inkwall.
 
 Prioritätsmodul: zeigt das aktuell auf Steam gespielte Spiel an,
 wenn das konfigurierte Profil gerade ingame ist.
@@ -15,7 +15,7 @@ from PIL import Image
 from app.config import get_bool_setting, get_cfg, get_setting
 from app.http_client import download_image_cached
 from app.logger import get_logger
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 log = get_logger(__name__)
 
@@ -78,7 +78,7 @@ SETTINGS_GROUPS: list[dict] = [
 ]
 
 
-class SteamModule(PlexInkModule):
+class SteamModule(InkwallModule):
     MODULE_ID = "steam"
     MODULE_NAME = "Steam"
     MODULE_DESCRIPTION = (

@@ -74,7 +74,7 @@ class EnvRoundtripTest(unittest.TestCase):
         self.assertIn("OTHER=keep\n", text)
 
     def test_settings_are_not_exported_to_process_environment(self) -> None:
-        marker = "PLEXINK_TEST_MARKER_KEY"
+        marker = "INKWALL_TEST_MARKER_KEY"
         os.environ.pop(marker, None)
         config.write_env_settings({marker: "should-stay-in-file"})
         config.apply_runtime_config()
@@ -131,11 +131,11 @@ class UiPasswordTest(unittest.TestCase):
         return {"Authorization": "Basic " + base64.b64encode(f"user:{pw}".encode()).decode()}
 
     def test_no_password_means_open_ui(self) -> None:
-        with patch.dict(os.environ, {"PLEXINK_UI_PASSWORD": ""}):
+        with patch.dict(os.environ, {"INKWALL_UI_PASSWORD": ""}):
             self.assertEqual(self.client.get("/").status_code, 200)
 
     def test_password_protects_ui_but_not_esp32_endpoints(self) -> None:
-        with patch.dict(os.environ, {"PLEXINK_UI_PASSWORD": "pw123"}):
+        with patch.dict(os.environ, {"INKWALL_UI_PASSWORD": "pw123"}):
             self.assertEqual(self.client.get("/").status_code, 401)
             self.assertEqual(self.client.get("/settings").status_code, 401)
             self.assertEqual(self.client.get("/api/status").status_code, 401)

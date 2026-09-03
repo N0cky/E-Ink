@@ -528,7 +528,7 @@ def export_settings(include_secrets: bool = False) -> dict[str, Any]:
         if include_secrets or f["name"] not in secret_keys
     }
     return {
-        "format": "pleximagee-ink-settings",
+        "format": "inkwall-settings",
         "version": 1,
         "includes_secrets": include_secrets,
         "values": exported,

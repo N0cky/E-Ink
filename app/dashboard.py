@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from app.config import RuntimeConfig, format_date_long, load_font, now_local
 from app.image_rendering import SPECTRA6_COLORS
 from app.logger import get_logger
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 log = get_logger(__name__)
 
@@ -62,7 +62,7 @@ def resolve_tile_layout(tiles: tuple[tuple[str, int], ...], available_ids: list[
     return [(mid, pct) for mid, pct in result if pct > 0]
 
 
-def compose_dashboard(env: dict[str, str], cfg: RuntimeConfig, modules: list[PlexInkModule],
+def compose_dashboard(env: dict[str, str], cfg: RuntimeConfig, modules: list[InkwallModule],
                       width: int | None = None, height: int | None = None) -> tuple[Image.Image, str] | None:
     """
     Rendert das Dashboard. modules: aktive Idle-Module in Reihenfolge der
@@ -149,7 +149,7 @@ def compose_dashboard(env: dict[str, str], cfg: RuntimeConfig, modules: list[Ple
     return canvas, state_key
 
 
-def _empty_tile(mod: PlexInkModule, width: int, height: int, pal: dict, flat: bool, scale: float) -> Image.Image:
+def _empty_tile(mod: InkwallModule, width: int, height: int, pal: dict, flat: bool, scale: float) -> Image.Image:
     img = Image.new("RGB", (width, height), pal["bg"])
     draw = ImageDraw.Draw(img)
     draw.text((int(24 * scale), int(16 * scale)), mod.MODULE_NAME, font=load_font(int(26 * scale), True), fill=pal["header"])

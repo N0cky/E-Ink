@@ -1,5 +1,5 @@
 """
-Gemeinsamer HTTP-Client für alle PlexImageE-Ink-Module.
+Gemeinsamer HTTP-Client für alle Inkwall-Module.
 
 HTTP_SESSION  – requests.Session mit Retry-Logik (shared singleton)
 download_image – lädt eine Bild-URL und gibt ein PIL-Image zurück

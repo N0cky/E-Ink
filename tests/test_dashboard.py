@@ -17,10 +17,10 @@ import app.config as config
 import app.dashboard as dashboard
 import app.http_client as http_client
 import app.server as server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
-class _Tile(PlexInkModule):
+class _Tile(InkwallModule):
     MODULE_PRIORITY = 100
 
     def __init__(self, module_id: str, content="x", supports_tile: bool = True, color=(200, 40, 40)):

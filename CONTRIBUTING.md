@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking the time to contribute to PlexImageE-Ink.
+Thanks for taking the time to contribute to Inkwall.
 
 ## Development Setup
 

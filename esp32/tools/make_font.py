@@ -1,5 +1,5 @@
 """
-Erzeugt esp32/PlexEInk/font_data.h: zwei Bitmap-Schriften (gross fuer den
+Erzeugt esp32/Inkwall/font_data.h: zwei Bitmap-Schriften (gross fuer den
 Offline-Balken, klein fuer Details) aus einer TrueType-Schrift, damit die
 Firmware ohne Server Text zeichnen kann.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "esp32" / "PlexEInk" / "font_data.h"
+OUT = ROOT / "esp32" / "Inkwall" / "font_data.h"
 
 CHARSET = "".join(chr(c) for c in range(32, 127)) + "ÄÖÜäöüß°·–…"
 SIZES = {"L": 44, "S": 26}

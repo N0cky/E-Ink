@@ -1,5 +1,5 @@
 """
-Gallery-Modul für PlexImageE-Ink.
+Gallery-Modul für Inkwall.
 
 Idle-Modul (MODULE_PRIORITY = 120): zeigt Bilder aus lokalen Ordnern an,
 wenn kein Prioritätsmodul aktiv ist.
@@ -13,7 +13,7 @@ from typing import Any
 from PIL import Image
 
 from app.logger import get_logger
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.module_services import ModuleRenderServices
 
 log = get_logger(__name__)
@@ -134,7 +134,7 @@ SETTINGS_GROUPS: list[dict] = [
 ]
 
 
-class GalleryModule(PlexInkModule):
+class GalleryModule(InkwallModule):
     MODULE_ID = "gallery"
     MODULE_NAME = "Gallery"
     MODULE_DESCRIPTION = (

@@ -1,9 +1,9 @@
 """
-Basisklasse für alle PlexImageE-Ink-Anzeigemodule.
+Basisklasse für alle Inkwall-Anzeigemodule.
 
 Jedes Modul liegt in einem eigenen Unterordner unter modules/ und stellt
 eine Datei __init__.py bereit, die ein `module`-Attribut exportiert
-(Instanz einer PlexInkModule-Unterklasse).
+(Instanz einer InkwallModule-Unterklasse; der alte Name PlexInkModule bleibt als Alias).
 
 Prioritäten:
   MODULE_PRIORITY < 10   → Prioritätsmodul  (z. B. Plex: wird angezeigt
@@ -20,7 +20,7 @@ from typing import Any
 from PIL import Image
 
 
-class PlexInkModule(ABC):
+class InkwallModule(ABC):
     """Basisklasse für alle Anzeigemodule."""
 
     # ── Pflichtfelder ─────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ class PlexInkModule(ABC):
 
     def supports_tile(self) -> bool:
         """True, wenn das Modul render_tile() überschreibt (Dashboard-Kachel)."""
-        return type(self).render_tile is not PlexInkModule.render_tile
+        return type(self).render_tile is not InkwallModule.render_tile
 
     # ── Dashboard-Modus ──────────────────────────────────────────────────────
 
@@ -214,3 +214,7 @@ class PlexInkModule(ABC):
         und wird im Dashboard übersprungen.
         """
         return None
+
+
+# Alter Name (bis zur Umbenennung in Inkwall) – externe Module dürfen ihn weiter nutzen
+PlexInkModule = InkwallModule

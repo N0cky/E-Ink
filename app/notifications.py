@@ -31,8 +31,8 @@ from app.logger import get_logger
 
 log = get_logger(__name__)
 
-BOT_NAME = "PlexImageE-Ink"
-DEFAULT_AVATAR_URL = "https://raw.githubusercontent.com/N0cky/E-Ink/main/logo.png"
+BOT_NAME = "Inkwall"
+DEFAULT_AVATAR_URL = "https://raw.githubusercontent.com/N0cky/inkwall/main/logo.png"
 ERROR_STREAK = 3                      # so viele Fehlerzyklen in Folge, bis gemeldet wird
 SOURCE_STALE_HOURS = 6                # so lange darf eine Quelle aus dem Cache leben, bis gemeldet wird
 SNAPSHOT_MAX_EDGE = 900

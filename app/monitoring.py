@@ -318,65 +318,65 @@ def prometheus_text(
                 value = 1 if value else 0
             lines.append(f"{name}{_labels(labels)} {value}")
 
-    metric("pleximage_info", "Serverversion", "gauge", [({"version": APP_VERSION}, 1)])
+    metric("inkwall_info", "Serverversion", "gauge", [({"version": APP_VERSION}, 1)])
 
     counters = counter_values()
-    for cname, help_text in (("pleximage_renders_total", "Erzeugte Bilder je Inhalt"),
-                             ("pleximage_render_errors_total", "Fehlgeschlagene Renders je Inhalt"),
-                             ("pleximage_acks_total", "Rückmeldungen des Geräts je Ergebnis"),
-                             ("pleximage_notifications_total", "Verschickte Benachrichtigungen je Art")):
+    for cname, help_text in (("inkwall_renders_total", "Erzeugte Bilder je Inhalt"),
+                             ("inkwall_render_errors_total", "Fehlgeschlagene Renders je Inhalt"),
+                             ("inkwall_acks_total", "Rückmeldungen des Geräts je Ergebnis"),
+                             ("inkwall_notifications_total", "Verschickte Benachrichtigungen je Art")):
         metric(cname, help_text, "counter", [(labels, value) for name, labels, value in counters if name == cname])
 
     rendered = _parse_ts(str(esp32_state.get("rendered_at", "")))
-    metric("pleximage_image_age_seconds", "Alter des aktuellen Bildes", "gauge",
+    metric("inkwall_image_age_seconds", "Alter des aktuellen Bildes", "gauge",
            [({}, int((now - rendered).total_seconds()) if rendered else None)])
-    metric("pleximage_image_current", "Aktueller Inhalt auf dem Display", "gauge",
+    metric("inkwall_image_current", "Aktueller Inhalt auf dem Display", "gauge",
            [({"module": esp32_state.get("media_type", "") or "none"}, 1)])
-    metric("pleximage_next_wake_seconds", "Empfohlene Schlafdauer des Geräts", "gauge", [({}, int(next_wake[0]))])
-    metric("pleximage_background_poll_seconds", "Prüfintervall des Servers", "gauge", [({}, int(background_poll_seconds))])
+    metric("inkwall_next_wake_seconds", "Empfohlene Schlafdauer des Geräts", "gauge", [({}, int(next_wake[0]))])
+    metric("inkwall_background_poll_seconds", "Prüfintervall des Servers", "gauge", [({}, int(background_poll_seconds))])
 
     ack_at = _parse_ts(str(last_ack.get("ack_at", "")))
     age = int((now - ack_at).total_seconds()) if ack_at else None
     device = {"device": last_ack.get("device_id") or "unknown"}
     if ack_at:
-        metric("pleximage_device_last_ack_age_seconds", "Sekunden seit der letzten Rückmeldung", "gauge", [(device, age)])
-        metric("pleximage_device_online", "1 = Rückmeldung jünger als die Ausfallschwelle", "gauge",
+        metric("inkwall_device_last_ack_age_seconds", "Sekunden seit der letzten Rückmeldung", "gauge", [(device, age)])
+        metric("inkwall_device_online", "1 = Rückmeldung jünger als die Ausfallschwelle", "gauge",
                [(device, 1 if (offline_minutes <= 0 or age < offline_minutes * 60) else 0)])
-        metric("pleximage_device_hash_matches", "1 = Gerät zeigt das aktuelle Bild", "gauge",
+        metric("inkwall_device_hash_matches", "1 = Gerät zeigt das aktuelle Bild", "gauge",
                [(device, last_ack.get("hash", "") == esp32_state.get("hash", ""))])
-        for key, name, help_text in (("rssi", "pleximage_device_rssi_dbm", "WLAN-Signal in dBm"),
-                                     ("cycle_ms", "pleximage_device_cycle_ms", "Dauer des letzten Zyklus"),
-                                     ("download_ms", "pleximage_device_download_ms", "Download-Dauer im letzten Zyklus"),
-                                     ("refresh_ms", "pleximage_device_refresh_ms", "Anzeigedauer im letzten Zyklus"),
-                                     ("boot_count", "pleximage_device_boot_count", "Aufwachzähler des Geräts"),
-                                     ("free_psram_kb", "pleximage_device_free_psram_kb", "Freier PSRAM in KB")):
+        for key, name, help_text in (("rssi", "inkwall_device_rssi_dbm", "WLAN-Signal in dBm"),
+                                     ("cycle_ms", "inkwall_device_cycle_ms", "Dauer des letzten Zyklus"),
+                                     ("download_ms", "inkwall_device_download_ms", "Download-Dauer im letzten Zyklus"),
+                                     ("refresh_ms", "inkwall_device_refresh_ms", "Anzeigedauer im letzten Zyklus"),
+                                     ("boot_count", "inkwall_device_boot_count", "Aufwachzähler des Geräts"),
+                                     ("free_psram_kb", "inkwall_device_free_psram_kb", "Freier PSRAM in KB")):
             value = last_ack.get(key)
             if isinstance(value, int):
                 metric(name, help_text, "gauge", [(device, value)])
         if last_ack.get("fw_version"):
-            metric("pleximage_device_firmware_info", "Firmware auf dem Gerät", "gauge",
+            metric("inkwall_device_firmware_info", "Firmware auf dem Gerät", "gauge",
                    [({**device, "version": last_ack["fw_version"]}, 1)])
         stats = ack_stats(read_ack_history(limit=5000, hours=history_hours, now=now), int(next_wake[0]) or DEFAULT_EXPECTED_SECONDS, now)
         window = {**device, "hours": str(int(history_hours))}
-        metric("pleximage_device_acks", "Rückmeldungen im Zeitfenster", "gauge", [(window, stats["count"])])
-        metric("pleximage_device_ack_errors", "Fehlermeldungen im Zeitfenster", "gauge", [(window, stats["errors"])])
-        metric("pleximage_device_longest_gap_seconds", "Längste Pause ohne Rückmeldung im Zeitfenster", "gauge", [(window, stats["longest_gap_s"])])
-        metric("pleximage_device_gaps_over_threshold", "Pausen über dem Dreifachen des Takts", "gauge", [(window, stats["gaps_over_threshold"])])
+        metric("inkwall_device_acks", "Rückmeldungen im Zeitfenster", "gauge", [(window, stats["count"])])
+        metric("inkwall_device_ack_errors", "Fehlermeldungen im Zeitfenster", "gauge", [(window, stats["errors"])])
+        metric("inkwall_device_longest_gap_seconds", "Längste Pause ohne Rückmeldung im Zeitfenster", "gauge", [(window, stats["longest_gap_s"])])
+        metric("inkwall_device_gaps_over_threshold", "Pausen über dem Dreifachen des Takts", "gauge", [(window, stats["gaps_over_threshold"])])
         if stats["avg_cycle_ms"] is not None:
-            metric("pleximage_device_cycle_avg_ms", "Mittlere Zyklusdauer im Zeitfenster", "gauge", [(window, stats["avg_cycle_ms"])])
+            metric("inkwall_device_cycle_avg_ms", "Mittlere Zyklusdauer im Zeitfenster", "gauge", [(window, stats["avg_cycle_ms"])])
         if stats["rssi_min"] is not None:
-            metric("pleximage_device_rssi_min_dbm", "Schwächstes WLAN-Signal im Zeitfenster", "gauge", [(window, stats["rssi_min"])])
+            metric("inkwall_device_rssi_min_dbm", "Schwächstes WLAN-Signal im Zeitfenster", "gauge", [(window, stats["rssi_min"])])
 
-    metric("pleximage_module_enabled", "1 = Inhalt im Programm eingeschaltet", "gauge",
+    metric("inkwall_module_enabled", "1 = Inhalt im Programm eingeschaltet", "gauge",
            [({"module": m["id"]}, 1 if m.get("enabled") else 0) for m in modules])
-    metric("pleximage_module_ready", "1 = Inhalt eingerichtet und ohne Fehler", "gauge",
+    metric("inkwall_module_ready", "1 = Inhalt eingerichtet und ohne Fehler", "gauge",
            [({"module": m["id"], "state": m.get("state", "ready")}, 1 if m.get("state") == "ready" else 0) for m in modules])
 
     if schedule_state:
         window_obj = schedule_state.get("window")
-        metric("pleximage_schedule_window_active", "1 = dieses Zeitfenster gilt gerade", "gauge",
+        metric("inkwall_schedule_window_active", "1 = dieses Zeitfenster gilt gerade", "gauge",
                [({"window": window_obj.name}, 1)] if window_obj is not None else [({"window": "none"}, 0)])
-        metric("pleximage_schedule_seconds_until_change", "Sekunden bis zur nächsten Fenstergrenze", "gauge",
+        metric("inkwall_schedule_seconds_until_change", "Sekunden bis zur nächsten Fenstergrenze", "gauge",
                [({}, int(schedule_state.get("seconds_until_change", 0) or 0))])
 
     return "\n".join(lines) + "\n"

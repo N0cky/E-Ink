@@ -15,7 +15,7 @@ SCAN_CACHE_SECONDS = 60
 
 # Freigegebene Wurzelordner (Prozess-Umgebung, nicht über die Oberfläche änderbar).
 # Gesetzt → Bildordner müssen darunter liegen; leer → keine Einschränkung (Heimnetz).
-GALLERY_ROOTS_ENV = "PLEXINK_GALLERY_ROOTS"
+GALLERY_ROOTS_ENV = "INKWALL_GALLERY_ROOTS"
 
 _scan_cache: dict[tuple[tuple[str, ...], bool], tuple[float, list[Path]]] = {}
 _recent_choice_cache: dict[tuple[int, int, int], int] = {}
@@ -23,8 +23,9 @@ _warned_paths: set[str] = set()
 
 
 def allowed_gallery_roots() -> tuple[Path, ...]:
-    """Wurzelordner aus PLEXINK_GALLERY_ROOTS (Semikolon oder Zeilenumbruch, unter Linux auch Doppelpunkt)."""
-    raw = os.environ.get(GALLERY_ROOTS_ENV, "").strip()
+    """Wurzelordner aus INKWALL_GALLERY_ROOTS (Semikolon oder Zeilenumbruch, unter Linux auch Doppelpunkt)."""
+    from app.config import process_env
+    raw = process_env("GALLERY_ROOTS")
     if os.name != "nt":
         raw = raw.replace(":", ";")
     roots: list[Path] = []

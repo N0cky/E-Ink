@@ -1,5 +1,5 @@
 """
-Zentrales Logging für PlexImageE-Ink.
+Zentrales Logging für Inkwall.
 
 Verwendung in jedem Modul:
     from app.logger import get_logger
@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Log-Pfad: per PLEXINK_LOGS_DIR überschreibbar (Docker: /logs)
 import os as _os
-_logs_env = _os.environ.get("PLEXINK_LOGS_DIR", "").strip()
+_logs_env = (_os.environ.get("INKWALL_LOGS_DIR", "").strip() or _os.environ.get("PLEXINK_LOGS_DIR", "").strip())   # alter Präfix gilt weiter
 LOGS_DIR  = Path(_logs_env) if _logs_env else PROJECT_ROOT / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -67,9 +67,9 @@ class _JsonLineFormatter(logging.Formatter):
 
         # Komponentenname kürzen
         name = record.name
-        if name.startswith("plex_ink."):
-            name = name[len("plex_ink."):]
-        elif name == "plex_ink":
+        if name.startswith("inkwall."):
+            name = name[len("inkwall."):]
+        elif name == "inkwall":
             name = "server"
 
         payload = {
@@ -102,7 +102,7 @@ _CONSOLE_FMT = _RedactingConsoleFormatter(
 # ---------------------------------------------------------------------------
 
 def _setup() -> logging.Logger:
-    root = logging.getLogger("plex_ink")
+    root = logging.getLogger("inkwall")
     if root.handlers:
         return root          # bereits initialisiert (z. B. durch Auto-Reload)
 
@@ -150,7 +150,7 @@ def log_event(kind: str, message: str, level: int = logging.INFO) -> None:
     gespeichert, Quelle nicht erreichbar. Landet als normale Logzeile mit
     zusätzlichem "event"-Feld in der JSONL, /api/logs?events=1 filtert darauf.
     """
-    logging.getLogger("plex_ink.events").log(level, message, extra={"event": kind})
+    logging.getLogger("inkwall.events").log(level, message, extra={"event": kind})
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -161,13 +161,13 @@ def get_logger(name: str) -> logging.Logger:
         from app.logger import get_logger
         log = get_logger(__name__)
 
-    Der Modul-Pfad ``app.foo.bar`` wird automatisch zu ``plex_ink.foo.bar``
-    umbenannt, damit alle Einträge unter dem ``plex_ink``-Baum landen.
+    Der Modul-Pfad ``app.foo.bar`` wird automatisch zu ``inkwall.foo.bar``
+    umbenannt, damit alle Einträge unter dem ``inkwall``-Baum landen.
     """
     if name.startswith("app."):
-        clean = "plex_ink." + name[4:]
-    elif not name.startswith("plex_ink"):
-        clean = f"plex_ink.{name}"
+        clean = "inkwall." + name[4:]
+    elif not name.startswith("inkwall"):
+        clean = f"inkwall.{name}"
     else:
         clean = name
     return logging.getLogger(clean)

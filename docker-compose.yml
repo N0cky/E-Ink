@@ -1,14 +1,14 @@
 services:
-  pleximagee-ink:
+  inkwall:
     build: .
-    container_name: pleximagee-ink
+    container_name: inkwall
     init: true
     ports:
       - "8787:8787"
     environment:
-      PLEXINK_CONFIG_FILE: /config/settings.env
-      PLEXINK_OUTPUT_DIR:  /output
-      PLEXINK_LOGS_DIR:    /logs
+      INKWALL_CONFIG_FILE: /config/settings.env
+      INKWALL_OUTPUT_DIR:  /output
+      INKWALL_LOGS_DIR:    /logs
     volumes:
       - ./config:/config
       - ./data/output:/output

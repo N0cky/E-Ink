@@ -1,9 +1,9 @@
 """
-Modul-Entdeckung und -Registry für PlexImageE-Ink.
+Modul-Entdeckung und -Registry für Inkwall.
 
 Beim Start scannt das Framework automatisch das Verzeichnis modules/.
 Jedes Unterverzeichnis mit einer __init__.py, die ein `module`-Attribut
-(PlexInkModule-Instanz) exportiert, wird als Modul registriert.
+(InkwallModule-Instanz) exportiert, wird als Modul registriert.
 
 Ein manueller Rescan ist über reload_modules() möglich (z. B. per API-Endpunkt).
 """
@@ -14,14 +14,14 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.logger import get_logger
 
 log = get_logger(__name__)
 
 MODULES_DIR = Path(__file__).resolve().parents[1] / "modules"
 
-_registry: list[PlexInkModule] = []
+_registry: list[InkwallModule] = []
 # Pakete, die diese Registry selbst geladen hat. Nur die werden bei einem
 # Rescan aus sys.modules entfernt – nie fremde Importe (z. B. aus Tests).
 _loaded_packages: set[str] = set()
@@ -38,7 +38,7 @@ def _same_file(mod, init_py: Path) -> bool:
         return False
 
 
-def _load_one(module_dir: Path) -> PlexInkModule | None:
+def _load_one(module_dir: Path) -> InkwallModule | None:
     """Lädt ein einzelnes Modul aus module_dir/__init__.py."""
     init_py = module_dir / "__init__.py"
     if not init_py.exists():
@@ -74,9 +74,9 @@ def _load_one(module_dir: Path) -> PlexInkModule | None:
         if instance is None:
             log.warning(f"Modul '{module_dir.name}': kein 'module'-Attribut in __init__.py")
             return None
-        if not isinstance(instance, PlexInkModule):
+        if not isinstance(instance, InkwallModule):
             log.warning(
-                f"Modul '{module_dir.name}': 'module' ist keine PlexInkModule-Instanz "
+                f"Modul '{module_dir.name}': 'module' ist keine InkwallModule-Instanz "
                 f"(Typ: {type(instance).__name__})"
             )
             return None
@@ -92,7 +92,7 @@ def _load_one(module_dir: Path) -> PlexInkModule | None:
 # Öffentliche API
 # ---------------------------------------------------------------------------
 
-def discover_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
+def discover_modules(modules_dir: Path | None = None) -> list[InkwallModule]:
     """
     Scannt MODULES_DIR nach Modulordnern und gibt geladene Instanzen zurück.
     Sortiert nach MODULE_PRIORITY aufsteigend, dann alphabetisch nach MODULE_NAME.
@@ -102,7 +102,7 @@ def discover_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
         log.warning(f"Module-Verzeichnis nicht gefunden: {modules_dir}")
         return []
 
-    found: list[PlexInkModule] = []
+    found: list[InkwallModule] = []
     for entry in sorted(modules_dir.iterdir()):
         if not entry.is_dir() or entry.name.startswith("_"):
             continue
@@ -114,7 +114,7 @@ def discover_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
                 f"(prio={instance.MODULE_PRIORITY})"
             )
 
-    validated: list[PlexInkModule] = []
+    validated: list[InkwallModule] = []
     seen_module_ids: dict[str, str] = {}
     seen_field_names: dict[str, str] = {}
 
@@ -162,7 +162,7 @@ def discover_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
     return validated
 
 
-def reload_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
+def reload_modules(modules_dir: Path | None = None) -> list[InkwallModule]:
     """
     Alle Module neu entdecken ohne Server-Neustart.
     Entfernt vorherige Einträge aus sys.modules damit __init__.py
@@ -184,22 +184,22 @@ def reload_modules(modules_dir: Path | None = None) -> list[PlexInkModule]:
     return list(_registry)
 
 
-def get_modules() -> list[PlexInkModule]:
+def get_modules() -> list[InkwallModule]:
     """Alle registrierten Module (sortiert nach Priorität)."""
     return list(_registry)
 
 
-def get_priority_modules() -> list[PlexInkModule]:
+def get_priority_modules() -> list[InkwallModule]:
     """Prioritätsmodule (MODULE_PRIORITY < 10), z. B. Plex."""
     return [m for m in _registry if m.MODULE_PRIORITY < 10]
 
 
-def get_idle_modules() -> list[PlexInkModule]:
+def get_idle_modules() -> list[InkwallModule]:
     """Idle-Module (MODULE_PRIORITY >= 10) – werden rotiert."""
     return [m for m in _registry if m.MODULE_PRIORITY >= 10]
 
 
-def get_module_by_id(module_id: str) -> PlexInkModule | None:
+def get_module_by_id(module_id: str) -> InkwallModule | None:
     for m in _registry:
         if m.MODULE_ID == module_id:
             return m

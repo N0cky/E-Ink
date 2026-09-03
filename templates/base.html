@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}PlexImageE-Ink{% endblock %}</title>
+    <title>{% block title %}Inkwall{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
     <script>
         (function () {
-            var t = localStorage.getItem('plexeink-ui-theme') || 'dark';
+            var t = localStorage.getItem('inkwall-ui-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', t);
         })();
     </script>
@@ -342,8 +342,8 @@
 <div class="page-shell">
     <header class="topbar">
         <div class="topbar-left">
-            <img class="logo-icon" src="{{ url_for('static', filename='logo.svg') }}" alt="PlexImageE-Ink logo">
-            <span class="logo-name">PlexImage<span class="logo-dot">E-Ink</span></span>
+            <img class="logo-icon" src="{{ url_for('static', filename='logo.svg') }}" alt="Inkwall logo">
+            <span class="logo-name">Ink<span class="logo-dot">wall</span></span>
             <span class="logo-sub">{% block page_subtitle %}{% endblock %}</span>
         </div>
 
@@ -387,7 +387,7 @@
         html.setAttribute('data-theme', t);
         icon.textContent = (THEMES[t] || THEMES.dark).icon;
         label.textContent = (THEMES[t] || THEMES.dark).label;
-        localStorage.setItem('plexeink-ui-theme', t);
+        localStorage.setItem('inkwall-ui-theme', t);
     }
     applyTheme(html.getAttribute('data-theme') || 'dark');
     btn.addEventListener('click', function () {

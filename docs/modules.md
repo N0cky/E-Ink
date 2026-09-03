@@ -37,17 +37,17 @@ modules/
 
 Jedes Modul exportiert in `__init__.py` ein Attribut `module`.
 
-Dieses Objekt muss eine Instanz einer Klasse sein, die von `PlexInkModule` erbt:
+Dieses Objekt muss eine Instanz einer Klasse sein, die von `InkwallModule` erbt:
 
 ```python
 from __future__ import annotations
 
 from PIL import Image
 
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
-class ExampleModule(PlexInkModule):
+class ExampleModule(InkwallModule):
     MODULE_ID = "example"
     MODULE_NAME = "Example"
     MODULE_DESCRIPTION = "Beispielmodul"
@@ -94,7 +94,7 @@ Wichtige Regeln:
 
 Die zentrale Registry liegt in:
 
-- [module_registry.py](/C:/Users/tobia/Documents/PlexImageE-Ink/app/module_registry.py)
+- [module_registry.py](/C:/Users/tobia/Documents/Inkwall/app/module_registry.py)
 
 
 ## Settings deklarieren
@@ -208,7 +208,7 @@ Status-Karten auf der Settings-Seite und loggt sie beim Start. Der Wert `"Aktiv"
 
 ## Optionale Hooks
 
-`PlexInkModule` bietet zusaetzlich optionale Hooks:
+`InkwallModule` bietet zusaetzlich optionale Hooks:
 
 ### `should_refresh(self, env)`
 
@@ -398,8 +398,8 @@ Beispiele:
 
 Fuer die Modularchitektur gibt es aktuell zwei Basistests:
 
-- [test_module_registry.py](/C:/Users/tobia/Documents/PlexImageE-Ink/tests/test_module_registry.py)
-- [test_settings_validation.py](/C:/Users/tobia/Documents/PlexImageE-Ink/tests/test_settings_validation.py)
+- [test_module_registry.py](/C:/Users/tobia/Documents/Inkwall/tests/test_module_registry.py)
+- [test_settings_validation.py](/C:/Users/tobia/Documents/Inkwall/tests/test_settings_validation.py)
 
 Empfehlung fuer neue Module:
 
@@ -424,7 +424,7 @@ Empfehlung fuer neue Module:
 
 ## Aktuelle Beispielmodule
 
-- [plex](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/plex/__init__.py)
-- [steam](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/steam/__init__.py)
-- [dwd_weather](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/dwd_weather/__init__.py)
-- [tagesschau](/C:/Users/tobia/Documents/PlexImageE-Ink/modules/tagesschau/__init__.py)
+- [plex](/C:/Users/tobia/Documents/Inkwall/modules/plex/__init__.py)
+- [steam](/C:/Users/tobia/Documents/Inkwall/modules/steam/__init__.py)
+- [dwd_weather](/C:/Users/tobia/Documents/Inkwall/modules/dwd_weather/__init__.py)
+- [tagesschau](/C:/Users/tobia/Documents/Inkwall/modules/tagesschau/__init__.py)

@@ -1,11 +1,11 @@
-# PlexEInk
+# Inkwall
 
 ESP32-S3-Firmware fuer ein Waveshare 13.3" Spectra 6 E-Ink-Display (`EPD_13IN3E`).
-Das Geraet verbindet sich per WLAN mit dem PlexImageE-Ink-Server, prueft per Hash auf
+Das Geraet verbindet sich per WLAN mit dem Inkwall-Server, prueft per Hash auf
 neue Inhalte, laedt bei Bedarf das Bild, zeigt es an, meldet sich zurueck und geht
 anschliessend wieder in den Deep Sleep.
 
-Version: `1.2.0` (siehe `FIRMWARE_VERSION` in `PlexEInk.ino`).
+Version: `1.2.0` (siehe `FIRMWARE_VERSION` in `Inkwall.ino`).
 
 ## Features
 
@@ -27,7 +27,7 @@ Version: `1.2.0` (siehe `FIRMWARE_VERSION` in `PlexEInk.ino`).
 
 ## Projektdateien
 
-- `PlexEInk.ino`: Hauptlogik fuer WLAN, HTTP, OTA, Bild-Download, Offline-Hinweis, ACK und Deep Sleep
+- `Inkwall.ino`: Hauptlogik fuer WLAN, HTTP, OTA, Bild-Download, Offline-Hinweis, ACK und Deep Sleep
 - `epd.cpp` / `epd.h`: Low-Level-Treiber fuer das 13.3" Spectra-6-Display
 - `text_draw.cpp` / `text_draw.h`: Text und Rechtecke im 4-bpp-Framebuffer (Statusanzeigen)
 - `font_data.h`: zwei Bitmap-Schriften (44 px und 26 px), erzeugt mit `python esp32/tools/make_font.py`
@@ -72,7 +72,7 @@ Schalter in `config.example.h` (per `config.private.h` ueberschreibbar):
 ## Update ueber den Server (OTA)
 
 1. Firmware bauen (siehe unten), die `.bin` auf der Geraet-Seite der Weboberflaeche hochladen.
-   Der Server liest die Version aus dem Marker `PLEXEINK_FW_VERSION=…` in der Datei.
+   Der Server liest die Version aus dem Marker `INKWALL_FW_VERSION=…` in der Datei.
 2. Beim naechsten Aufwachen vergleicht das Geraet die Version aus `/meta.json` mit seiner
    eigenen. Weicht sie ab, laedt es die Datei in die freie App-Partition und startet neu.
 3. Rollback-Schutz (in der Firmware, nicht im Bootloader – der Arduino-Bootloader markiert
@@ -114,7 +114,7 @@ System-Seite gedacht; wer am USB-Port mitlesen will, setzt "USB CDC On Boot: Ena
   "image_format": "epd4",
   "wake_reason": "timer",
   "error": "…nur bei result=error…",
-  "log": ["== PlexEInk 1.1.0 Boot #123 (timer) ==", "…"]
+  "log": ["== Inkwall 1.1.0 Boot #123 (timer) ==", "…"]
 }
 ```
 
@@ -148,7 +148,7 @@ der Balken mit "Auf dem Display ausprobieren" einmal zur Probe anzeigen.
 arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB" --export-binaries .
 ```
 
-Die fertige Datei liegt danach unter `build/esp32.esp32.esp32s3/PlexEInk.ino.bin` und kann
+Die fertige Datei liegt danach unter `build/esp32.esp32.esp32s3/Inkwall.ino.bin` und kann
 so auf der Geraet-Seite hochgeladen werden. Getestet mit `arduino-cli 1.4.1` und `esp32:esp32 3.3.8`.
 
 ## Arduino IDE

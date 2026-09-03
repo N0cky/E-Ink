@@ -17,10 +17,10 @@ from PIL import Image
 import app.config as config
 import app.display_api as api
 import app.server as server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
-class _Content(PlexInkModule):
+class _Content(InkwallModule):
     MODULE_PRIORITY = 100
     SETTINGS_FIELDS = [
         {"name": "DEMO_URL", "label": "Adresse", "type": "text"},
@@ -51,10 +51,10 @@ class _Content(PlexInkModule):
 
 class _NoTile(_Content):
     """Inhalt ohne Kachel: render_tile ist die Basis-Implementierung (supports_tile() → False)."""
-    render_tile = PlexInkModule.render_tile
+    render_tile = InkwallModule.render_tile
 
 
-class _Live(PlexInkModule):
+class _Live(InkwallModule):
     MODULE_PRIORITY = 1
     ENABLED_KEY = "LIVE_MODULE_ENABLED"
     SETTINGS_FIELDS = [{"name": "LIVE_MODULE_ENABLED", "label": "Aktiv", "type": "select", "options": [("true", "an"), ("false", "aus")]}]
@@ -293,7 +293,7 @@ class ModuleSettingsTest(unittest.TestCase):
 
 class BaseHookDefaultsTest(unittest.TestCase):
     def test_default_status_from_health(self) -> None:
-        class _M(PlexInkModule):
+        class _M(InkwallModule):
             MODULE_ID = "m"
 
             def fetch_content(self, env):

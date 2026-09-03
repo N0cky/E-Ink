@@ -1,5 +1,5 @@
 """
-Kalender-Modul für PlexImageE-Ink.
+Kalender-Modul für Inkwall.
 
 Idle-Modul (MODULE_PRIORITY = 106). Liest einen oder mehrere ICS-Kalender
 (Google, Nextcloud, iCloud, Outlook – der private ICS-Link reicht) und zeigt
@@ -13,7 +13,7 @@ from typing import Any
 from PIL import Image
 
 from app.logger import get_logger
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.module_services import ModuleRenderServices
 
 log = get_logger(__name__)
@@ -81,7 +81,7 @@ SETTINGS_FIELDS: list[dict] = [
 SETTINGS_GROUPS: list[dict] = []
 
 
-class CalendarModule(PlexInkModule):
+class CalendarModule(InkwallModule):
     MODULE_ID          = "calendar"
     MODULE_NAME        = "Kalender"
     MODULE_DESCRIPTION = (

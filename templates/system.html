@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set active_page = "system" %}
 
-{% block title %}PlexImageE-Ink · System{% endblock %}
+{% block title %}Inkwall · System{% endblock %}
 {% block page_subtitle %}System{% endblock %}
 
 {% block extra_styles %}
@@ -77,7 +77,7 @@
                     <label class="btn" for="importFile">Datei wählen<input type="file" id="importFile" accept="application/json,.json" hidden></label></div>
                 <div class="maint-row"><div><b>Module neu laden</b><div class="hint">Liest den Ordner <span class="mono">modules/</span> neu ein, ohne Neustart.</div></div>
                     <button class="btn" type="button" id="rescanBtn">Neu laden</button></div>
-                <div class="maint-row"><div><b>Zugangsschutz</b><div class="hint">Setze die Umgebungsvariable <span class="mono">PLEXINK_UI_PASSWORD</span> im Container, um diese Oberfläche mit Passwort zu schützen. Das Display braucht kein Passwort.</div></div>
+                <div class="maint-row"><div><b>Zugangsschutz</b><div class="hint">Setze die Umgebungsvariable <span class="mono">INKWALL_UI_PASSWORD</span> im Container, um diese Oberfläche mit Passwort zu schützen. Das Display braucht kein Passwort.</div></div>
                     <span class="chip" id="authChip"></span></div>
             </div>
             <div style="margin-top:14px">
@@ -172,7 +172,7 @@
             var data = await ui.json('/api/settings/export' + ($('exportSecrets').checked ? '?secrets=1' : ''));
             var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = 'pleximagee-ink-settings-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
+            a.download = 'inkwall-settings-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
         } catch (e) { ui.toast('Export fehlgeschlagen: ' + e.message, 'error'); }
     });
     $('importFile').addEventListener('change', async function () {

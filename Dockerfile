@@ -1,15 +1,15 @@
 FROM python:3.13-slim
 
-LABEL org.opencontainers.image.title="PlexImageE-Ink" \
+LABEL org.opencontainers.image.title="Inkwall" \
       org.opencontainers.image.description="Self-hosted image server for E-Ink now playing and idle dashboards." \
       org.opencontainers.image.licenses="E-Ink Now Playing Display License (Non-Commercial)"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PLEXINK_CONFIG_FILE=/config/settings.env \
-    PLEXINK_OUTPUT_DIR=/output \
-    PLEXINK_LOGS_DIR=/logs
+    INKWALL_CONFIG_FILE=/config/settings.env \
+    INKWALL_OUTPUT_DIR=/output \
+    INKWALL_LOGS_DIR=/logs
 
 WORKDIR /app
 

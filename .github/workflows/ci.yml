@@ -40,4 +40,4 @@ jobs:
 
       - name: Docker build smoke test
         run: |
-          docker build -t pleximagee-ink:test .
+          docker build -t inkwall:test .

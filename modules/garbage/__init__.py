@@ -1,5 +1,5 @@
 """
-Müllabfuhr-Modul für PlexImageE-Ink.
+Müllabfuhr-Modul für Inkwall.
 
 Idle-Modul (MODULE_PRIORITY = 105). Liest ICS-Abfuhrkalender (eine oder
 mehrere Adressen), zeigt den nächsten Abfuhrtag groß und die Termine der
@@ -18,7 +18,7 @@ from typing import Any
 from PIL import Image
 
 from app.logger import get_logger
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.module_services import ModuleRenderServices
 
 log = get_logger(__name__)
@@ -128,7 +128,7 @@ def _hour_setting(env: dict[str, str], key: str, default: int) -> int:
         return default
 
 
-class GarbageModule(PlexInkModule):
+class GarbageModule(InkwallModule):
     MODULE_ID          = "garbage"
     MODULE_NAME        = "Müllabfuhr"
     MODULE_DESCRIPTION = (

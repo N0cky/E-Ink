@@ -21,7 +21,7 @@ from app.image_rendering import quantize_spectra6, SPECTRA6_COLORS
 def _fake_firmware(version: str = "1.2.3", chip_id: int = 9, with_marker: bool = True) -> bytes:
     head = bytes([0xE9]) + bytes(11) + chip_id.to_bytes(2, "little") + bytes(2)
     body = b"\x00" * 200
-    marker = (b"PLEXEINK_FW_VERSION=" + version.encode() + b"\0") if with_marker else b""
+    marker = (b"INKWALL_FW_VERSION=" + version.encode() + b"\0") if with_marker else b""
     return head + body + marker + b"\x00" * 100
 
 
@@ -94,7 +94,7 @@ class FirmwareHostingTest(_TmpFirmware):
         self.assertEqual(client.get("/firmware.bin").status_code, 404)
 
         data = _fake_firmware("1.1.0")
-        resp = client.post("/api/device/firmware", data={"file": (io.BytesIO(data), "PlexEInk.ino.bin")},
+        resp = client.post("/api/device/firmware", data={"file": (io.BytesIO(data), "Inkwall.ino.bin")},
                            content_type="multipart/form-data")
         self.assertEqual(resp.status_code, 200, resp.get_json())
         self.assertEqual(resp.get_json()["firmware"]["version"], "1.1.0")
@@ -136,7 +136,7 @@ class AckAndDeviceLogTest(_TmpFirmware):
                 "device_id": "esp32-eink-01", "hash": "abc", "result": "updated", "fw_version": "1.1.0",
                 "rssi": -71, "boot_count": 42, "free_psram_kb": 7900, "cycle_ms": 6100, "download_ms": 900,
                 "refresh_ms": 4200, "image_format": "epd4", "wake_reason": "timer", "ip": "192.168.178.50",
-                "log": ["== PlexEInk 1.1.0 Boot #42 ==", "[WiFi] OK", "", "[EPD] Fertig!"],
+                "log": ["== Inkwall 1.1.0 Boot #42 ==", "[WiFi] OK", "", "[EPD] Fertig!"],
             })
             self.assertEqual(resp.status_code, 200)
             self.assertIsNone(resp.get_json()["firmware"], "keine Firmware bereitgestellt")
@@ -152,7 +152,7 @@ class AckAndDeviceLogTest(_TmpFirmware):
         self.assertTrue(state["firmware"]["device_supports_ota"])
 
         entries = client.get("/api/device/log").get_json()
-        self.assertEqual([e["msg"] for e in entries], ["[EPD] Fertig!", "[WiFi] OK", "== PlexEInk 1.1.0 Boot #42 =="])
+        self.assertEqual([e["msg"] for e in entries], ["[EPD] Fertig!", "[WiFi] OK", "== Inkwall 1.1.0 Boot #42 =="])
         self.assertEqual(entries[0]["device"], "esp32-eink-01")
         self.assertEqual(client.delete("/api/device/log").status_code, 200)
         self.assertEqual(client.get("/api/device/log").get_json(), [])

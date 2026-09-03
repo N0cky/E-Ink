@@ -1,5 +1,5 @@
 """
-Tagesschau-Nachrichten-Modul für PlexImageE-Ink.
+Tagesschau-Nachrichten-Modul für Inkwall.
 
 Idle-Modul (MODULE_PRIORITY = 110): wird angezeigt wenn kein Prioritätsmodul
 und kein höherpriorisiertes Idle-Modul aktiven Inhalt meldet.
@@ -13,7 +13,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.module_services import ModuleRenderServices
 from app.logger import get_logger
 
@@ -45,7 +45,7 @@ SETTINGS_GROUPS: list[dict] = []   # Kein Untergruppen-Bedarf bei einem Feld
 # Modul-Implementierung
 # ---------------------------------------------------------------------------
 
-class TagesschauModule(PlexInkModule):
+class TagesschauModule(InkwallModule):
     MODULE_ID          = "tagesschau"
     MODULE_NAME        = "Tagesschau"
     MODULE_DESCRIPTION = (

@@ -1,5 +1,5 @@
 """
-PlexImageE-Ink Webservice – Framework-Orchestrator.
+Inkwall Webservice – Framework-Orchestrator.
 
 Bindet Module-Registry, Config, Bild-Rendering und Flask-Routes zusammen.
 Module werden beim Start automatisch aus dem modules/-Verzeichnis geladen.
@@ -65,7 +65,7 @@ _registry.reload_modules()
 
 
 # ---------------------------------------------------------------------------
-# Optionaler UI-Schutz per Basic Auth (PLEXINK_UI_PASSWORD)
+# Optionaler UI-Schutz per Basic Auth (INKWALL_UI_PASSWORD)
 # ---------------------------------------------------------------------------
 
 # Endpunkte, die der ESP32 ohne Auth erreichen muss. Der Rest (Dashboard,
@@ -76,7 +76,8 @@ _PUBLIC_PREFIXES = ("/static/",)
 
 
 def _ui_password() -> str:
-    return os.environ.get("PLEXINK_UI_PASSWORD", "").strip()
+    from app.config import process_env
+    return process_env("UI_PASSWORD")
 
 
 @app.before_request
@@ -93,7 +94,7 @@ def _require_ui_password():
     return (
         "Authentifizierung erforderlich.",
         401,
-        {"WWW-Authenticate": 'Basic realm="PlexImageE-Ink", charset="UTF-8"'},
+        {"WWW-Authenticate": 'Basic realm="Inkwall", charset="UTF-8"'},
     )
 
 
@@ -419,7 +420,7 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         # Verlauf: nur echte neue Bilder, nicht die „unverändert“-Durchläufe
         from app import history, monitoring
         history.record(image, module_id, shown, image_hash)
-        monitoring.increment("pleximage_renders_total", module=module_id)
+        monitoring.increment("inkwall_renders_total", module=module_id)
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +531,7 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
 
 def _count_render_error(module_id: str) -> None:
     from app import monitoring
-    monitoring.increment("pleximage_render_errors_total", module=module_id)
+    monitoring.increment("inkwall_render_errors_total", module=module_id)
 
 
 def _rotation_sequence(enabled_idle: list, env: dict[str, str]) -> list:
@@ -687,7 +688,7 @@ def _log_notifications(kinds: list) -> None:
     from app import monitoring
     device = _last_ack.get("device_id") or "Gerät"
     for kind in kinds:
-        monitoring.increment("pleximage_notifications_total", kind=kind)
+        monitoring.increment("inkwall_notifications_total", kind=kind)
         text, level = _NOTIFY_LOG.get(kind, ("Nachricht verschickt", logging.INFO))
         log_event("device", f"{device}: {text}" if kind in ("offline", "online", "firmware", "rollback", "errors") else text, level)
 
@@ -1048,7 +1049,7 @@ def ack():
 
     # Beobachtung: Historie, Zähler, Ereignisse (Entwarnung, Firmware, Fehlerserie), letzte Rückmeldung überlebt einen Neustart
     monitoring.record_ack(ack_data, matches)
-    monitoring.increment("pleximage_acks_total", result=result)
+    monitoring.increment("inkwall_acks_total", result=result)
     try:
         _log_notifications(_notifier().on_ack(ack_data, previous))
         state = load_device_state()
@@ -1155,7 +1156,7 @@ def api_notify_test():
     ok = notifier.send_test(_last_ack, _current_summary())
     if not ok:
         return jsonify({"ok": False, "error": "Die Nachricht kam nicht an – Adresse prüfen (Ereignisse zeigen die Antwort)."}), 502
-    monitoring.increment("pleximage_notifications_total", kind="test")
+    monitoring.increment("inkwall_notifications_total", kind="test")
     log_event("device", "Testnachricht verschickt")
     return jsonify({"ok": True})
 
@@ -1178,7 +1179,7 @@ def firmware_bin():
     if not fw:
         return "Keine Firmware bereitgestellt.", 404
     response = send_file(str(FIRMWARE_BIN), mimetype="application/octet-stream", max_age=0,
-                         as_attachment=True, download_name=f"PlexEInk-{fw['version']}.bin")
+                         as_attachment=True, download_name=f"Inkwall-{fw['version']}.bin")
     # HTTPUpdate auf dem ESP32 prüft die Datei gegen diesen Header
     response.headers["x-MD5"] = fw["md5"]
     response.headers["X-Firmware-Version"] = fw["version"]
@@ -1623,7 +1624,7 @@ def ensure_runtime_started() -> None:
 
         _worker_thread = threading.Thread(
             target=periodic_worker,
-            name="plexink-periodic-worker",
+            name="inkwall-periodic-worker",
             daemon=True,
         )
         _worker_thread.start()

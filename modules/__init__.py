@@ -1,1 +1,1 @@
-# Module-Paket – PlexImageE-Ink
+# Module-Paket – Inkwall

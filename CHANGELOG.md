@@ -36,6 +36,7 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 
 ### Changed
 
+- Renamed to **Inkwall** (the previous name carried two trademarks). Environment variables use the prefix `INKWALL_`, the old `PLEXINK_` prefix keeps working; the firmware version marker is `INKWALL_FW_VERSION=` and the server still reads `PLEXEINK_FW_VERSION=` from older builds; the module base class is `InkwallModule` with `PlexInkModule` kept as an alias; the firmware sketch lives in `esp32/Inkwall`; Prometheus metrics are prefixed `inkwall_`
 - Rendering is serialised (one render at a time), images are written atomically and the hash comes from the written bytes – the ESP32 can no longer download a half-written file or a stale hash
 - `/refresh`, `/webhook` and saving settings wake the render worker instead of rendering inside the request; Gunicorn runs with 4 threads and a 120 s timeout
 - Plex and Steam code, the Plex overlays and the Tagesschau drawing code moved from `app/` into their modules; `app/text_rendering.py` holds the shared text helpers; `ModuleRenderServices` reduced to size, theme and fonts
@@ -66,6 +67,7 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 
 ### Changed
 
+- Renamed to **Inkwall** (the previous name carried two trademarks). Environment variables use the prefix `INKWALL_`, the old `PLEXINK_` prefix keeps working; the firmware version marker is `INKWALL_FW_VERSION=` and the server still reads `PLEXEINK_FW_VERSION=` from older builds; the module base class is `InkwallModule` with `PlexInkModule` kept as an alias; the firmware sketch lives in `esp32/Inkwall`; Prometheus metrics are prefixed `inkwall_`
 - Migrated production serving to Gunicorn via `wsgi.py`
 - Refactored the old idle-module context model into modular service dataclasses
 - Improved dashboard diagnostics with wake reason and effective server polling interval

@@ -29,7 +29,8 @@ FIRMWARE_BIN = FIRMWARE_DIR / "firmware.bin"
 FIRMWARE_META = FIRMWARE_DIR / "firmware.json"
 DEVICE_LOG_PATH = LOGS_DIR / "device.log"
 
-VERSION_MARKER = b"PLEXEINK_FW_VERSION="
+VERSION_MARKER = b"INKWALL_FW_VERSION="
+LEGACY_VERSION_MARKER = b"PLEXEINK_FW_VERSION="     # Firmware bis 1.2.x
 ESP_IMAGE_MAGIC = 0xE9
 ESP32_S3_CHIP_ID = 9
 MAX_FIRMWARE_BYTES = 3 * 1024 * 1024        # App-Partition (app3M_fat9M_16MB)
@@ -55,10 +56,14 @@ def inspect_firmware(data: bytes) -> dict:
         raise ValueError(f"Die Firmware ist für einen anderen Chip gebaut (Chip-ID {chip_id}, erwartet ESP32-S3).")
     if len(data) > MAX_FIRMWARE_BYTES:
         raise ValueError("Die Firmware ist größer als die App-Partition des Geräts (3 MB).")
-    pos = data.find(VERSION_MARKER)
+    marker = VERSION_MARKER
+    pos = data.find(marker)
+    if pos < 0:
+        marker = LEGACY_VERSION_MARKER
+        pos = data.find(marker)
     if pos < 0:
         raise ValueError("Keine Versionsnummer gefunden. Die Firmware muss FIRMWARE_VERSION setzen (ab Sketch 1.1.0).")
-    start = pos + len(VERSION_MARKER)
+    start = pos + len(marker)
     end = data.find(b"\0", start, start + 40)
     version = data[start:end if end > 0 else start + 40].decode("ascii", errors="replace").strip()
     if not re.fullmatch(r"[0-9A-Za-z.+-]{1,32}", version):

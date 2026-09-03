@@ -17,14 +17,14 @@ from unittest.mock import patch
 from PIL import Image
 
 import app.server as server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
 # ---------------------------------------------------------------------------
 # Fake-Module
 # ---------------------------------------------------------------------------
 
-class _FakeModule(PlexInkModule):
+class _FakeModule(InkwallModule):
     MODULE_ID = "fake"
     MODULE_NAME = "Fake"
     MODULE_DESCRIPTION = "test"

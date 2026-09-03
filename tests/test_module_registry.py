@@ -22,10 +22,10 @@ class ModuleRegistrySmokeTest(unittest.TestCase):
                 root,
                 "alpha",
                 """
-                from app.module_base import PlexInkModule
+                from app.module_base import InkwallModule
                 from PIL import Image
 
-                class Alpha(PlexInkModule):
+                class Alpha(InkwallModule):
                     MODULE_ID = "alpha"
                     MODULE_NAME = "Alpha"
                     MODULE_DESCRIPTION = "alpha module"
@@ -51,10 +51,10 @@ class ModuleRegistrySmokeTest(unittest.TestCase):
             (root / "__init__.py").write_text("", encoding="utf-8")
 
             template = """
-                from app.module_base import PlexInkModule
+                from app.module_base import InkwallModule
                 from PIL import Image
 
-                class Demo(PlexInkModule):
+                class Demo(InkwallModule):
                     MODULE_ID = "dup"
                     MODULE_NAME = "{name}"
                     MODULE_DESCRIPTION = "demo"
@@ -81,10 +81,10 @@ class ModuleRegistrySmokeTest(unittest.TestCase):
             (root / "__init__.py").write_text("", encoding="utf-8")
 
             template = """
-                from app.module_base import PlexInkModule
+                from app.module_base import InkwallModule
                 from PIL import Image
 
-                class Demo(PlexInkModule):
+                class Demo(InkwallModule):
                     MODULE_ID = "{module_id}"
                     MODULE_NAME = "{module_name}"
                     MODULE_DESCRIPTION = "demo"

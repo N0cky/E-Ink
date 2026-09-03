@@ -1,5 +1,5 @@
 """
-Konfiguration, Konstanten, RuntimeConfig und Env-IO für PlexImageE-Ink.
+Konfiguration, Konstanten, RuntimeConfig und Env-IO für Inkwall.
 
 Dieses Modul enthält ausschließlich Framework-Einstellungen (Render-Größe,
 Rotation, Theme, Ausgabeformat, Idle-Verwaltung, Zeitzone).
@@ -35,8 +35,17 @@ CONFIG_DIR = PROJECT_DIR / "config"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def process_env(name: str, default: str = "") -> str:
+    """Prozess-Umgebungsvariable INKWALL_<name>; der alte Präfix PLEXINK_ gilt weiter."""
+    for prefix in ("INKWALL_", "PLEXINK_"):
+        value = os.environ.get(prefix + name, "").strip()
+        if value:
+            return value
+    return default
+
+
 def resolve_env_file_path() -> Path:
-    configured = os.environ.get("PLEXINK_CONFIG_FILE", "").strip()
+    configured = process_env("CONFIG_FILE")
     if configured:
         return Path(configured).expanduser()
     return CONFIG_DIR / "settings.env"
@@ -47,8 +56,8 @@ ENV_FILE_PATH = resolve_env_file_path()
 # nicht in os.environ. Sonst könnte ein Wert wie HTTPS_PROXY aus der
 # Settings-Datei das Verhalten von requests beeinflussen.
 
-# Ausgabepfad: per PLEXINK_OUTPUT_DIR überschreibbar (Docker: /output)
-_output_env = os.environ.get("PLEXINK_OUTPUT_DIR", "").strip()
+# Ausgabepfad: per INKWALL_OUTPUT_DIR überschreibbar (Docker: /output)
+_output_env = process_env("OUTPUT_DIR")
 DATA_DIR = Path(_output_env) if _output_env else PROJECT_DIR / "data" / "output"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1054,7 +1063,7 @@ def load_font(size: int, is_bold: bool = False):
                 pass
     # Kein TrueType-Font gefunden – Bitmap-Fallback (kein anchor-Support!)
     import logging as _logging
-    _logging.getLogger("plex_ink.config").warning(
+    _logging.getLogger("inkwall.config").warning(
         f"load_font({size}, bold={is_bold}): kein TrueType-Font gefunden "
         f"(Kandidaten: {candidates}). Bitmap-Fallback aktiv – "
         f"anchor-Parameter in draw.text() funktioniert NICHT."

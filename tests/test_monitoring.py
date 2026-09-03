@@ -49,12 +49,12 @@ class _Isolated(unittest.TestCase):
 
 class CountersAndHistoryTest(_Isolated):
     def test_counters_with_labels(self) -> None:
-        mon.increment("pleximage_renders_total", module="dwd_weather")
-        mon.increment("pleximage_renders_total", module="dwd_weather")
-        mon.increment("pleximage_renders_total", module="calendar")
+        mon.increment("inkwall_renders_total", module="dwd_weather")
+        mon.increment("inkwall_renders_total", module="dwd_weather")
+        mon.increment("inkwall_renders_total", module="calendar")
         self.assertEqual(mon.counter_values(), [
-            ("pleximage_renders_total", {"module": "calendar"}, 1),
-            ("pleximage_renders_total", {"module": "dwd_weather"}, 2),
+            ("inkwall_renders_total", {"module": "calendar"}, 1),
+            ("inkwall_renders_total", {"module": "dwd_weather"}, 2),
         ])
 
     def test_record_read_and_stats(self) -> None:
@@ -155,35 +155,35 @@ class NotificationTest(_Isolated):
 
 class PrometheusTextTest(_Isolated):
     def test_text_contains_counters_gauges_and_escaped_labels(self) -> None:
-        mon.increment("pleximage_renders_total", module="dwd_weather")
-        mon.increment("pleximage_acks_total", result="updated")
+        mon.increment("inkwall_renders_total", module="dwd_weather")
+        mon.increment("inkwall_acks_total", result="updated")
         mon.record_ack({"ack_at": _ts(NOW - timedelta(minutes=5)), "result": "updated", "rssi": -66, "cycle_ms": 9000, "device_id": 'esp "one"'})
         esp = {"hash": "abc", "media_type": "dwd_weather", "rendered_at": _ts(NOW - timedelta(minutes=3)), "state": "x"}
         ack = {"ack_at": _ts(NOW - timedelta(minutes=5)), "hash": "abc", "device_id": 'esp "one"', "rssi": -66, "cycle_ms": 9000, "fw_version": "1.2.3"}
         text = mon.prometheus_text(esp, ack, (120, "Idle"), 60,
                                    [{"id": "dwd_weather", "enabled": True, "state": "ready"}, {"id": "calendar", "enabled": False, "state": "missing"}],
                                    {"window": SimpleNamespace(name="Nachts"), "seconds_until_change": 500}, offline_minutes=30, now=NOW)
-        self.assertIn(f'pleximage_info{{version="{config.APP_VERSION}"}} 1', text)
-        self.assertIn('pleximage_renders_total{module="dwd_weather"} 1', text)
-        self.assertIn('pleximage_acks_total{result="updated"} 1', text)
-        self.assertIn("pleximage_image_age_seconds 180", text)
-        self.assertIn("pleximage_next_wake_seconds 120", text)
-        self.assertIn('pleximage_device_last_ack_age_seconds{device="esp \\"one\\""} 300', text)
-        self.assertIn('pleximage_device_online{device="esp \\"one\\""} 1', text)
-        self.assertIn('pleximage_device_hash_matches{device="esp \\"one\\""} 1', text)
-        self.assertIn('pleximage_device_rssi_dbm{device="esp \\"one\\""} -66', text)
-        self.assertIn('pleximage_device_firmware_info{device="esp \\"one\\"",version="1.2.3"} 1', text)
-        self.assertIn('pleximage_device_acks{device="esp \\"one\\"",hours="24"} 1', text)
-        self.assertIn('pleximage_module_ready{module="calendar",state="missing"} 0', text)
-        self.assertIn('pleximage_module_enabled{module="dwd_weather"} 1', text)
-        self.assertIn('pleximage_schedule_window_active{window="Nachts"} 1', text)
-        self.assertIn("pleximage_schedule_seconds_until_change 500", text)
+        self.assertIn(f'inkwall_info{{version="{config.APP_VERSION}"}} 1', text)
+        self.assertIn('inkwall_renders_total{module="dwd_weather"} 1', text)
+        self.assertIn('inkwall_acks_total{result="updated"} 1', text)
+        self.assertIn("inkwall_image_age_seconds 180", text)
+        self.assertIn("inkwall_next_wake_seconds 120", text)
+        self.assertIn('inkwall_device_last_ack_age_seconds{device="esp \\"one\\""} 300', text)
+        self.assertIn('inkwall_device_online{device="esp \\"one\\""} 1', text)
+        self.assertIn('inkwall_device_hash_matches{device="esp \\"one\\""} 1', text)
+        self.assertIn('inkwall_device_rssi_dbm{device="esp \\"one\\""} -66', text)
+        self.assertIn('inkwall_device_firmware_info{device="esp \\"one\\"",version="1.2.3"} 1', text)
+        self.assertIn('inkwall_device_acks{device="esp \\"one\\"",hours="24"} 1', text)
+        self.assertIn('inkwall_module_ready{module="calendar",state="missing"} 0', text)
+        self.assertIn('inkwall_module_enabled{module="dwd_weather"} 1', text)
+        self.assertIn('inkwall_schedule_window_active{window="Nachts"} 1', text)
+        self.assertIn("inkwall_schedule_seconds_until_change 500", text)
         self.assertTrue(text.endswith("\n"))
 
     def test_offline_device_reports_zero(self) -> None:
         ack = {"ack_at": _ts(NOW - timedelta(hours=2)), "device_id": "esp"}
         text = mon.prometheus_text({}, ack, (120, ""), 60, [], None, offline_minutes=30, now=NOW)
-        self.assertIn('pleximage_device_online{device="esp"} 0', text)
+        self.assertIn('inkwall_device_online{device="esp"} 0', text)
 
 
 class RoutesTest(_Isolated):
@@ -204,9 +204,9 @@ class RoutesTest(_Isolated):
         self.assertEqual(metrics.status_code, 200)
         self.assertIn("text/plain", metrics.content_type)
         body = metrics.get_data(as_text=True)
-        self.assertIn("pleximage_info", body)
-        self.assertIn('pleximage_acks_total{result="updated"} 1', body)
-        self.assertIn('pleximage_device_rssi_dbm{device="esp-t"} -70', body)
+        self.assertIn("inkwall_info", body)
+        self.assertIn('inkwall_acks_total{result="updated"} 1', body)
+        self.assertIn('inkwall_device_rssi_dbm{device="esp-t"} -70', body)
         history = self.client.get("/api/device/history?hours=24").get_json()
         self.assertEqual(history["stats"]["count"], 1)
         self.assertEqual(history["entries"][0]["rssi"], -70)

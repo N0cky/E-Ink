@@ -1,7 +1,7 @@
 #pragma once
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PlexEInk – Beispielkonfiguration
+//  Inkwall – Beispielkonfiguration
 //
 //  Diese Datei ist die sichere Vorlage fuer gemeinsam genutzte Defaults.
 //  Lokale Zugangsdaten und geraetespezifische Werte kommen in config.private.h.

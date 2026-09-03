@@ -18,11 +18,11 @@ from PIL import Image
 
 import app.config as config
 import app.server as server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 from app.schedule import ALL_DAYS, Window
 
 
-class _Tile(PlexInkModule):
+class _Tile(InkwallModule):
     MODULE_PRIORITY = 100
 
     def __init__(self, module_id: str, name: str, configured: bool = True, tile: bool = True):
@@ -55,7 +55,7 @@ class _Tile(PlexInkModule):
 
 class _NoTile(_Tile):
     """Inhalt ohne Kachel: render_tile ist die Basis-Implementierung (supports_tile() → False)."""
-    render_tile = PlexInkModule.render_tile
+    render_tile = InkwallModule.render_tile
 
 
 def _registry_patches(modules):

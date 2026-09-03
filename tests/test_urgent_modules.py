@@ -9,10 +9,10 @@ import unittest
 from PIL import Image
 
 from app import server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
-class _Mod(PlexInkModule):
+class _Mod(InkwallModule):
     MODULE_PRIORITY = 100
 
     def __init__(self, module_id: str, urgent: bool = False):
@@ -54,7 +54,7 @@ class RotationSequenceTest(unittest.TestCase):
         self.assertEqual([m.MODULE_ID for m in server._rotation_sequence(mods, {})], ["muell"])
 
     def test_default_hook_is_false(self) -> None:
-        self.assertFalse(PlexInkModule.is_urgent(_Mod("x"), {}))
+        self.assertFalse(InkwallModule.is_urgent(_Mod("x"), {}))
 
 
 class DashboardUrgentOrderTest(unittest.TestCase):

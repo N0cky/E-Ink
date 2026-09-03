@@ -14,10 +14,10 @@ from PIL import Image
 
 import app.config as config
 import app.server as server
-from app.module_base import PlexInkModule
+from app.module_base import InkwallModule
 
 
-class _PreviewModule(PlexInkModule):
+class _PreviewModule(InkwallModule):
     MODULE_ID = "previewable"
     MODULE_NAME = "Previewable"
     MODULE_DESCRIPTION = "test"
