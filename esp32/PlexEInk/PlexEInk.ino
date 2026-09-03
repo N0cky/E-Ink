@@ -57,9 +57,9 @@
 // Der Server liest die Version aus dem Marker in der .bin (Gerät-Seite → Firmware).
 // Der Marker wird im Boot-Log referenziert, sonst wirft der Linker ihn weg.
 #ifdef OTA_SELFTEST_FAIL
-#define FIRMWARE_VERSION "1.2.2-selftest"
+#define FIRMWARE_VERSION "1.2.3-selftest"
 #else
-#define FIRMWARE_VERSION "1.2.2"
+#define FIRMWARE_VERSION "1.2.3"
 #endif
 #define FW_MARKER_PREFIX "PLEXEINK_FW_VERSION="
 const char FW_VERSION_MARKER[] __attribute__((used)) = FW_MARKER_PREFIX FIRMWARE_VERSION;
@@ -573,6 +573,9 @@ static void showOfflineBanner(bool wifiFailed, bool test) {
     if (!haveImage) fbFill(fb, EPD_COLOR_WHITE);
 
     const int barH = 120;
+    // Bild um die Balkenhoehe nach unten schieben: der Balken verdeckt so nicht die
+    // Kopfzeile der Seite, sondern nur die (meist leeren) untersten Zeilen.
+    memmove(fb + (size_t)barH * EPD_ROW_BYTES, fb, (size_t)(EPD_HEIGHT - barH) * EPD_ROW_BYTES);
     fbFillRect(fb, 0, 0, EPD_WIDTH, barH, EPD_COLOR_BLACK);
     String since = localTimeText(test ? nowEpoch() : firstFailEpoch);
     String line1 = String(test ? "Probe: " : "") + (wifiFailed ? "Kein WLAN" : "Keine Verbindung zum Server");
