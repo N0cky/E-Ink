@@ -31,6 +31,7 @@
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
+#include <Preferences.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdarg.h>
@@ -43,7 +44,11 @@
 // ─── Version ─────────────────────────────────────────────────────────────────
 // Der Server liest die Version aus dem Marker in der .bin (Gerät-Seite → Firmware).
 // Der Marker wird im Boot-Log referenziert, sonst wirft der Linker ihn weg.
-#define FIRMWARE_VERSION "1.1.0"
+#ifdef OTA_SELFTEST_FAIL
+#define FIRMWARE_VERSION "1.1.6-selftest"
+#else
+#define FIRMWARE_VERSION "1.1.6"
+#endif
 #define FW_MARKER_PREFIX "PLEXEINK_FW_VERSION="
 const char FW_VERSION_MARKER[] __attribute__((used)) = FW_MARKER_PREFIX FIRMWARE_VERSION;
 static const char* firmwareVersionFromMarker() { return FW_VERSION_MARKER + sizeof(FW_MARKER_PREFIX) - 1; }
@@ -52,6 +57,53 @@ static const char* firmwareVersionFromMarker() { return FW_VERSION_MARKER + size
 RTC_DATA_ATTR char     storedHash[33] = {0};
 RTC_DATA_ATTR uint32_t bootCount      = 0;
 RTC_DATA_ATTR char     lastError[96]  = {0};   // Fehler eines Zyklus ohne ACK (z. B. WLAN weg)
+
+// ─── OTA-Gedächtnis im Flash (NVS) ───────────────────────────────────────────
+// Rollback-Schutz in der Firmware selbst (der Arduino-Bootloader lässt eine
+// neue Firmware nicht im Prüfzustand, siehe Gerätelog "valid" direkt nach OTA):
+//   - vor dem Neustart in die neue Firmware: pendingVerify=1, Zielversion merken
+//   - die neue Firmware zählt ihre Starts; erreicht sie den Server, ist sie bestätigt
+//   - zwei Starts ohne Serverkontakt → Update.rollBack() auf die alte Partition
+//   - die alte Firmware sieht rolledBack, meldet es und lädt diese Version nicht erneut
+// Bewusst NVS statt RTC-Speicher: RTC-Variablen liegen je Firmware-Build an anderen
+// Adressen, die neue Firmware würde die Notiz der alten nicht finden (so passiert
+// mit 1.1.4). NVS ist adressunabhängig und überlebt auch Stromausfall.
+struct OtaMemory {
+    char     targetVersion[32];
+    uint8_t  pendingVerify;
+    uint8_t  failedBoots;
+    uint8_t  rolledBack;
+    uint8_t  rollbackReported;
+};
+static OtaMemory otaMemory;
+static const char* OTA_NVS_NAMESPACE = "plexeink";
+
+static void otaMemoryLoad() {
+    memset(&otaMemory, 0, sizeof(otaMemory));
+    Preferences prefs;
+    if (!prefs.begin(OTA_NVS_NAMESPACE, true)) return;      // noch nie geschrieben
+    prefs.getString("target", otaMemory.targetVersion, sizeof(otaMemory.targetVersion));
+    otaMemory.pendingVerify    = prefs.getUChar("pending", 0);
+    otaMemory.failedBoots      = prefs.getUChar("fails", 0);
+    otaMemory.rolledBack       = prefs.getUChar("rolled", 0);
+    otaMemory.rollbackReported = prefs.getUChar("reported", 0);
+    prefs.end();
+}
+
+static void otaMemorySave() {
+    Preferences prefs;
+    if (!prefs.begin(OTA_NVS_NAMESPACE, false)) { Serial.println("[NVS] nicht beschreibbar"); return; }
+    prefs.putString("target", otaMemory.targetVersion);
+    prefs.putUChar("pending", otaMemory.pendingVerify);
+    prefs.putUChar("fails", otaMemory.failedBoots);
+    prefs.putUChar("rolled", otaMemory.rolledBack);
+    prefs.putUChar("reported", otaMemory.rollbackReported);
+    prefs.end();
+}
+
+// Falls der Bootloader doch einmal den Prüfzustand nutzt: nicht automatisch bestätigen,
+// das macht der Sketch nach erfolgreichem Serverkontakt.
+bool verifyRollbackLater() { return true; }
 
 static const uint32_t HTTP_STREAM_IDLE_TIMEOUT_MS = 10000;
 static const size_t   EPD_HEADER_SIZE = 16;
@@ -106,9 +158,72 @@ void setup() {
     bootCount++;
     logf("== PlexEInk %s Boot #%lu (%s) ==", firmwareVersionFromMarker(), (unsigned long)bootCount, wakeReasonText());
     logf("PSRAM frei: %u KB", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    {
+        // Welcher App-Slot laeuft, und in welchem OTA-Zustand sind beide Slots?
+        // (new/pending/valid/aborted – so sieht man im Geraetelog, ob der Rollback-Schutz greift)
+        const esp_partition_t* part = esp_ota_get_running_partition();
+        const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+        auto stateName = [](const esp_partition_t* p) -> const char* {
+            esp_ota_img_states_t st;
+            if (!p || esp_ota_get_state_partition(p, &st) != ESP_OK) return "?";
+            switch (st) {
+                case ESP_OTA_IMG_NEW:            return "new";
+                case ESP_OTA_IMG_PENDING_VERIFY: return "pending";
+                case ESP_OTA_IMG_VALID:          return "valid";
+                case ESP_OTA_IMG_INVALID:        return "invalid";
+                case ESP_OTA_IMG_ABORTED:        return "aborted";
+                default:                         return "undefined";
+            }
+        };
+        logf("Partition: %s (%s), andere: %s (%s)",
+             part ? part->label : "?", stateName(part), next ? next->label : "?", stateName(next));
+    }
     if (lastError[0]) {
         logf("[WARN] Letzter Zyklus ohne Rueckmeldung: %s", lastError);
     }
+    otaMemoryLoad();
+
+    // ── Frisch per OTA geflasht? Starts zählen, notfalls zurückrollen ────────
+    if (otaMemory.pendingVerify) {
+        otaMemory.failedBoots++;
+        if (otaMemory.failedBoots > 2) {
+            logf("[OTA] %s hat den Server zweimal nicht erreicht -> Rollback", FIRMWARE_VERSION);
+            otaMemory.pendingVerify = 0;
+            otaMemory.failedBoots = 0;
+            otaMemory.rolledBack = 1;
+            otaMemory.rollbackReported = 0;
+            otaMemorySave();
+            if (Update.canRollBack() && Update.rollBack()) {
+                Serial.flush();
+                delay(200);
+                ESP.restart();
+            }
+            logf("[OTA] Rollback nicht moeglich - keine bootfaehige alte Firmware");
+        } else {
+            otaMemorySave();
+            logf("[OTA] Erster Lauf von %s, Bestaetigung steht aus (Start %u von 2)",
+                 FIRMWARE_VERSION, (unsigned)otaMemory.failedBoots);
+        }
+    }
+
+#ifdef OTA_SELFTEST_FAIL
+    // Selbsttest des Rollbacks: diese Firmware erreicht den Server absichtlich nie.
+    // Sie schläft kurz, wacht auf, und nach zwei Starts muss der Rollback greifen.
+    // Notbremse unabhängig vom NVS-Gedächtnis: nach sechs Starts in jedem Fall zurück.
+    {
+        static RTC_DATA_ATTR uint32_t selftestBoots = 0;
+        selftestBoots++;
+        logf("[SELFTEST] Absichtlich kaputte Firmware (Start %lu) - kein WLAN, Sleep 20 s, Rollback erwartet",
+             (unsigned long)selftestBoots);
+        if (selftestBoots > 6 && Update.canRollBack() && Update.rollBack()) {
+            logf("[SELFTEST] Notbremse: Rollback ohne NVS");
+            Serial.flush(); delay(200); ESP.restart();
+        }
+        Serial.flush();
+        esp_sleep_enable_timer_wakeup(20ULL * 1000000ULL);
+        esp_deep_sleep_start();
+    }
+#endif
 
     if (hasUnsetConfig()) {
         logf("[ERR] Konfiguration unvollstaendig. Bitte config.private.h oder config.example.h anpassen.");
@@ -142,22 +257,52 @@ void setup() {
     if (running && esp_ota_get_state_partition(running, &otaState) == ESP_OK
         && otaState == ESP_OTA_IMG_PENDING_VERIFY) {
         esp_ota_mark_app_valid_cancel_rollback();
-        logf("[OTA] Neue Firmware %s bestaetigt (Partition %s)", FIRMWARE_VERSION, running->label);
+    }
+    if (otaMemory.pendingVerify) {
+        otaMemory.pendingVerify = 0;
+        otaMemory.failedBoots = 0;
+        otaMemory.targetVersion[0] = 0;
+        otaMemorySave();
+        logf("[OTA] Neue Firmware %s bestaetigt (Partition %s)", FIRMWARE_VERSION, running ? running->label : "?");
+    }
+
+    // ── Wurde die letzte Firmware zurückgerollt? ─────────────────────────────
+    // Dann sagt die gemerkte Zielversion, welche Version wir nicht noch einmal laden.
+    String rejectedVersion;
+    const esp_partition_t* other = esp_ota_get_next_update_partition(NULL);
+    esp_ota_img_states_t otherState;
+    bool otherAborted = other && esp_ota_get_state_partition(other, &otherState) == ESP_OK
+        && (otherState == ESP_OTA_IMG_ABORTED || otherState == ESP_OTA_IMG_INVALID);
+    if (otaMemory.targetVersion[0] && (otaMemory.rolledBack || otherAborted)) {
+        rejectedVersion = otaMemory.targetVersion;
+        if (!otaMemory.rollbackReported) {
+            g_error = String("Firmware ") + rejectedVersion + " zurueckgerollt: Start ohne Serverkontakt";
+            logf("[OTA] %s (laeuft wieder %s auf %s)", g_error.c_str(), FIRMWARE_VERSION, running ? running->label : "?");
+            otaMemory.rollbackReported = 1;
+            otaMemorySave();
+        }
     }
 
     // ── Firmware-Update? ─────────────────────────────────────────────────────
     if (FIRMWARE_OTA_ENABLED && !meta.firmwareVersion.isEmpty()
         && meta.firmwareVersion != FIRMWARE_VERSION && !meta.firmwareUrl.isEmpty()) {
-        logf("[OTA] Server bietet %s an, laufend ist %s -> Update", meta.firmwareVersion.c_str(), FIRMWARE_VERSION);
-        if (performOta(meta)) {
-            // performOta startet neu; hierher kommen wir nur, wenn das Update fehlschlug
+        if (meta.firmwareVersion == rejectedVersion) {
+            logf("[OTA] %s wurde schon einmal zurueckgerollt - kein neuer Versuch, bis eine andere Version bereitsteht",
+                 rejectedVersion.c_str());
+        } else {
+            logf("[OTA] Server bietet %s an, laufend ist %s -> Update", meta.firmwareVersion.c_str(), FIRMWARE_VERSION);
+            meta.firmwareVersion.toCharArray(otaMemory.targetVersion, sizeof(otaMemory.targetVersion));
+            otaMemory.rollbackReported = 0;
+            otaMemory.rolledBack = 0;
+            otaMemorySave();
+            performOta(meta);   // startet bei Erfolg neu; sonst laeuft der Zyklus normal weiter
         }
     }
 
     // ── Hash unverändert → nur melden und schlafen ───────────────────────────
     if (meta.hash == String(storedHash)) {
         logf("[Hash] Unveraendert -> Sleep %lu s", (unsigned long)meta.nextWakeSec);
-        if (ACK_ENABLED) sendAck("unchanged", storedHash);
+        if (ACK_ENABLED) sendAck(g_error.isEmpty() ? "unchanged" : "error", storedHash);
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
         goSleep(meta.nextWakeSec);
@@ -178,7 +323,8 @@ void setup() {
         meta.hash.toCharArray(storedHash, sizeof(storedHash));
         logf("[OK] Bild aktualisiert (%s, Download %lu ms, Anzeige %lu ms)",
              g_imageFormat.c_str(), (unsigned long)g_downloadMs, (unsigned long)g_refreshMs);
-        if (ACK_ENABLED && !sendAck("updated", storedHash)) {
+        // Ein gemerkter Rollback wird als Fehler gemeldet, damit er auf der Geraet-Seite steht
+        if (ACK_ENABLED && !sendAck(g_error.isEmpty() ? "updated" : "error", storedHash)) {
             logf("[WARN] ACK nicht bestaetigt");
         }
     } else {
@@ -503,6 +649,10 @@ bool performOta(const Meta& meta) {
         case HTTP_UPDATE_OK:
             logf("[OTA] Firmware %s geschrieben (%lu ms), Neustart", meta.firmwareVersion.c_str(),
                  (unsigned long)(millis() - t));
+            // Ab jetzt muss sich die neue Firmware beweisen (siehe OtaMemory)
+            otaMemory.pendingVerify = 1;
+            otaMemory.failedBoots = 0;
+            otaMemorySave();
             Serial.flush();
             delay(200);
             ESP.restart();

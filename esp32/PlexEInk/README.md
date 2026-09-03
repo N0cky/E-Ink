@@ -66,12 +66,30 @@ Schalter in `config.example.h` (per `config.private.h` ueberschreibbar):
    Der Server liest die Version aus dem Marker `PLEXEINK_FW_VERSION=…` in der Datei.
 2. Beim naechsten Aufwachen vergleicht das Geraet die Version aus `/meta.json` mit seiner
    eigenen. Weicht sie ab, laedt es die Datei in die freie App-Partition und startet neu.
-3. Die neue Firmware markiert sich erst dann als gueltig, wenn WLAN und Server wieder
-   funktionieren. Bleibt das aus, rollt der Bootloader beim naechsten Start auf die alte
-   Firmware zurueck.
+3. Rollback-Schutz (in der Firmware, nicht im Bootloader – der Arduino-Bootloader markiert
+   neue Firmware sofort als gueltig): Vor dem Neustart merkt sich das Geraet im Flash (NVS)
+   die Zielversion und "Bestaetigung ausstehend". Die neue Firmware zaehlt ihre Starts und
+   gilt erst als bestaetigt, wenn sie WLAN und Server erreicht hat. Zwei Starts ohne
+   Serverkontakt → `Update.rollBack()` auf die alte Partition. Die alte Firmware meldet
+   den Rollback als Fehler (Geraet-Seite) und laedt diese Version nicht noch einmal, bis
+   der Server eine andere bereitstellt. Das Gedaechtnis ueberlebt auch Stromtrennung.
+
+Selbsttest des Rollbacks (absichtlich kaputte Firmware, die den Server nie erreicht):
+
+```powershell
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DOTA_SELFTEST_FAIL" --build-path build-selftest .
+```
+
+Die Datei meldet sich als `<version>-selftest`, nach dem Update und zwei Starts muss das
+Geraet mit der vorherigen Version und der Fehlermeldung "zurueckgerollt" zurueckkommen.
+Getestet am 3. September 2026 mit 1.1.5.
 
 Voraussetzungen: Partitionsschema mit zwei App-Slots (`16M Flash (3MB APP/9.9MB FATFS)`
 hat `app0` und `app1` mit je 3 MB) und einmalig ein Flash per USB mit einer Firmware ab 1.1.0.
+
+Hinweis zum USB-Port: Mit den Standard-Board-Einstellungen gehen die seriellen Ausgaben auf
+UART0, nicht auf den USB-Port des ESP32-S3. Fuer Logs ohne Kabel ist das Geraetelog auf der
+System-Seite gedacht; wer am USB-Port mitlesen will, setzt "USB CDC On Boot: Enabled".
 
 ## Rueckmeldung (`POST /ack`)
 
