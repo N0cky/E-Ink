@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json as _json
+import logging
 import os
 import time
 import threading
@@ -18,7 +19,7 @@ from datetime import datetime, timezone
 from flask import Flask, redirect, render_template, request, send_file, jsonify, url_for
 from PIL import Image, ImageDraw
 
-from app.logger import get_logger, LOGS_DIR
+from app.logger import get_logger, redact_secrets, LOGS_DIR
 
 log = get_logger(__name__)
 
@@ -310,6 +311,7 @@ def _encode_image(image: Image.Image, fmt: str) -> bytes:
 
 
 def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
+    global _esp32_state
     cfg = get_cfg()
 
     if should_flip_output(cfg.display_rotation):
@@ -323,16 +325,22 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         device_bytes  = _encode_image(device_img, "BMP")
         preview_bytes = _encode_image(preview_img, "PNG")
         image_hash = hashlib.md5(device_bytes).hexdigest()
-        _atomic_write_bytes(CURRENT_IMAGE_PATH, preview_bytes)
-        _atomic_write_bytes(CURRENT_BMP_PATH, device_bytes)
+        files = [(CURRENT_IMAGE_PATH, preview_bytes), (CURRENT_BMP_PATH, device_bytes)]
     else:
         png_bytes = _encode_image(image, "PNG")
         image_hash = hashlib.md5(png_bytes).hexdigest()
-        _atomic_write_bytes(CURRENT_IMAGE_PATH, png_bytes)
+        files = [(CURRENT_IMAGE_PATH, png_bytes)]
+
+    # Gleiches Bild wie zuletzt (typisch: Rotations-Slot wechselt, Inhalt nicht):
+    # Dateien nicht neu schreiben, nur den State-Key nachziehen. Der ESP32
+    # sieht denselben Hash und lädt nichts.
+    unchanged = image_hash == _esp32_state.get("hash") and all(p.exists() for p, _ in files)
+    if not unchanged:
+        for path, data in files:
+            _atomic_write_bytes(path, data)
 
     _atomic_write_bytes(STATE_PATH, state_key.encode("utf-8"))
 
-    global _esp32_state
     _esp32_state = {
         "hash":        image_hash,
         "format":      cfg.output_format,
@@ -340,10 +348,11 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         "media_type":  module_id,
         "rendered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    log.info(
+    log.log(
+        logging.DEBUG if unchanged else logging.INFO,
         f"Rendered [{module_id}] state={state_key[:40]} "
         f"theme={cfg.display_theme} fmt={cfg.output_format} "
-        f"hash={_esp32_state['hash'][:8]}…"
+        f"hash={_esp32_state['hash'][:8]}…{' (unverändert)' if unchanged else ''}"
     )
 
 
@@ -978,6 +987,9 @@ def api_logs():
             if search and search not in (entry.get("msg") or "").lower() \
                        and search not in (entry.get("name") or "").lower():
                 continue
+            # Auch beim Lesen maskieren: Zeilen aus der Zeit vor der Log-Maskierung
+            # liegen bis zur Rotation noch unverändert in der Datei
+            entry["msg"] = redact_secrets(entry.get("msg") or "")
             entries.append(entry)
 
     entries.reverse()   # chronologisch, wie bisher

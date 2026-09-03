@@ -357,13 +357,19 @@ def draw_tagesschau_card(
         24, 22, font_news_summary, load_font, is_bold=False, max_lines=14, line_spacing=0.1,
     )
 
-    # Wenn der Summary-Block sehr knapp auf Kante sitzt, etwas früher kürzen,
-    # statt die letzte Zeile optisch in den unteren Rand laufen zu lassen.
-    if summary_lines and summary_total_h >= max(0, summary_max_height - 2):
-        summary_font, summary_lines, summary_line_h, summary_spacing, _ = fit_optional_text_block(
-            draw, item["summary"], text_width, max(0, summary_max_height - 8),
-            24, 22, font_news_summary, load_font, is_bold=False, max_lines=13, line_spacing=0.1,
-        )
+    # Harte Grenze: fit_wrapped_text liefert bei Platzmangel alle Zeilen in Minimalgröße,
+    # auch wenn sie nicht mehr in die Karte passen. Dann auf die Zeilen kürzen, die
+    # wirklich passen (wrap_text setzt dabei die Ellipse), notfalls ganz weglassen.
+    if summary_lines:
+        step = summary_line_h + summary_spacing
+        max_fit = int((summary_max_height - 6 + summary_spacing) // step) if step > 0 else 0
+        if max_fit <= 0:
+            summary_lines = []
+        elif len(summary_lines) > max_fit:
+            summary_font, summary_lines, summary_line_h, summary_spacing, _ = fit_optional_text_block(
+                draw, item["summary"], text_width, summary_max_height,
+                24, 22, font_news_summary, load_font, is_bold=False, max_lines=max_fit, line_spacing=0.1,
+            )
 
     current_y = inner_y
     if meta_lines:
