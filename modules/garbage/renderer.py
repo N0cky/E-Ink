@@ -136,6 +136,29 @@ def _short_date(d: date) -> str:
     return f"{format_weekday_short(d)} {d.day:02d}.{d.month:02d}."
 
 
+def _group_events(events: list[dict]) -> list[dict]:
+    """Gleiche Tonne an mehreren Adressen → eine Zeile mit allen Adressen."""
+    groups: list[dict] = []
+    for ev in events:
+        for g in groups:
+            if g["summary"] == ev.get("summary") and g["color"] == ev.get("color"):
+                if ev.get("label") and ev["label"] not in g["labels"]:
+                    g["labels"].append(ev["label"])
+                break
+        else:
+            groups.append({"summary": ev.get("summary", ""), "color": ev.get("color", "grey"),
+                           "labels": [ev["label"]] if ev.get("label") else []})
+    return groups
+
+
+def _ellipsize(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
+    if draw.textlength(text, font=font) <= max_w:
+        return text
+    while text and draw.textlength(text + "…", font=font) > max_w:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
 def render_garbage_module(services: ModuleRenderServices, content: object, compact: bool = False) -> Image.Image:
     """compact=True: Dashboard-Kachel – kleine Titelzeile, kleinerer Hero."""
     data = content if isinstance(content, dict) else {}
@@ -166,73 +189,136 @@ def render_garbage_module(services: ModuleRenderServices, content: object, compa
 
     next_day = data.get("next")
     days = data.get("days") or []
+    groups = _group_events(next_day["events"])[:4] if next_day else []
 
     # ── Hero: nächster Abfuhrtag ─────────────────────────────────────────────
-    # Kompakt: Hero nimmt höchstens die Hälfte der Kachel, sonst feste Höhe
-    hero_h = min(px(420), max(px(200), (rh - y) // 2)) if compact else px(420)
+    # Die Höhe folgt dem Inhalt (Datum + eine Zeile pro Tonne), damit nichts
+    # aus dem Rahmen läuft; in der Kachel wird alles etwas kleiner gesetzt.
+    small = compact
+    avail = rh - y - margin
+    hs = 1.0  # Verdichtung, falls die Kachel zu niedrig für den vollen Satz ist
+
+    def _measure(hs: float):
+        f = {
+            "rel":   load_font(max(18, int(px(54 if small else 78) * hs)), True),
+            "when":  load_font(max(14, int(px(26 if small else 32) * hs)), False),
+            "label": load_font(max(12, int(px(22 if small else 26) * hs)), False),
+        }
+        type_max = max(16, int(px(40 if small else 60) * hs))
+        type_min = max(14, int(px(24 if small else 28) * hs))
+        h = {
+            "pad_top": int(px(22 if small else 48) * hs),
+            "rel":     int(px(60 if small else 96) * hs),
+            "when":    int(px(38 if small else 56) * hs),
+            "pad_bot": int(px(18 if small else 40) * hs),
+            "line":    int(px(50 if small else 66) * hs),
+            "wrap":    int(px(28 if small else 34) * hs),
+        }
+        probe_font = load_font(type_max, True)
+        line_heights: list[int] = []
+        for g in groups:
+            label = ", ".join(g["labels"])
+            inline = not label or (draw.textlength(g["summary"], font=probe_font) + px(16)
+                                   + draw.textlength(label, font=f["label"]) <= text_w)
+            line_heights.append(h["line"] + (0 if inline else h["wrap"]))
+        needed = h["pad_top"] + h["rel"] + h["when"] + sum(line_heights) + h["pad_bot"]
+        if next_day and data.get("next_outside_window"):
+            needed += int(px(34) * hs)
+        return f, type_max, type_min, h, line_heights, needed
+
+    bin_max = px(200 if small else 280)
+    bin_w_max = int(bin_max * 0.75)
+    extra_n = max(0, len(groups) - 1)
+    text_x = margin + px(48) + bin_w_max + (extra_n * (px(70) + px(12)) + px(6) if extra_n else 0) + px(40)
+    text_w = rw - margin - text_x - px(32)
+
+    fonts, type_max, type_min, hh, line_heights, needed = _measure(1.0)
+    if needed > avail > 0:
+        hs = max(0.55, avail / needed)
+        fonts, type_max, type_min, hh, line_heights, needed = _measure(hs)
+    font_rel, font_when, font_label = fonts["rel"], fonts["when"], fonts["label"]
+    pad_top, rel_h, when_h = hh["pad_top"], hh["rel"], hh["when"]
+    hero_h = max(px(200) if small else px(420), needed)
+    # Passt darunter keine Terminzeile mehr, bekommt der Hero den Platz (die Tonnen wachsen mit)
+    rows_need = px(28 if small else 40) + int(px(48 * (0.78 if compact else 1.0))) + int(px(84 * (0.78 if compact else 1.0)))
+    if compact and hero_h + rows_need > avail:
+        oneliner = px(28) + px(34 * 0.78) + px(6) if days and len(days) > 1 else 0
+        hero_h = max(hero_h, avail - oneliner)
+    hero_h = min(hero_h, avail)
     hero = (margin, y, rw - margin, y + hero_h)
     draw.rounded_rectangle(hero, radius=0 if flat else px(28), fill=pal["card_fill"],
                            outline=pal["card_outline"], width=4 if flat else 2)
 
     if next_day:
-        bin_h = min(px(280), hero_h - px(60))
+        bin_h = max(px(80), min(bin_max, hero_h - px(50 if small else 60)))
         bin_w = int(bin_h * 0.75)
         bin_x = hero[0] + px(48)
-        bin_y = y + (hero_h - bin_h) // 2 + px(10)
-        first_color = pal["bins"][next_day["events"][0]["color"]]
-        draw_bin(draw, bin_x, bin_y, bin_w, bin_h, first_color, pal)
-        # Weitere Tonnen am selben Tag klein daneben
-        extra = next_day["events"][1:4]
+        bin_y = y + (hero_h - bin_h) // 2 + px(6)
+        draw_bin(draw, bin_x, bin_y, bin_w, bin_h, pal["bins"][groups[0]["color"]], pal)
+        # Weitere Tonnenarten am selben Tag klein daneben
         ex = bin_x + bin_w + px(18)
-        for ev in extra:
-            small_w, small_h = px(70), px(96)
-            draw_bin(draw, ex, bin_y + bin_h - small_h, small_w, small_h, pal["bins"][ev["color"]], pal)
+        for g in groups[1:]:
+            small_w = px(70)
+            small_h = min(px(96), bin_h - px(10))
+            draw_bin(draw, ex, bin_y + bin_h - small_h, small_w, small_h, pal["bins"][g["color"]], pal)
             ex += small_w + px(12)
 
-        text_x = max(ex, bin_x + bin_w) + px(40)
-        text_w = hero[2] - text_x - px(40)
-        small_hero = hero_h < px(320)
-        font_rel   = load_font(px(54 if small_hero else 78), True)
-        font_when  = load_font(px(26 if small_hero else 32), False)
-        font_type  = load_font(px(34 if small_hero else 44), True)
-        font_label = load_font(px(22 if small_hero else 26), False)
-
-        ty = y + px(28 if small_hero else 48)
+        ty = y + pad_top + max(0, (hero_h - needed) // 2)  # senkrecht mittig, wenn Luft ist
         draw.text((text_x, ty), next_day["relative"], font=font_rel, fill=pal["accent"] if flat else pal["title"])
-        ty += px(66 if small_hero else 96)
+        ty += rel_h
         draw.text((text_x, ty), format_date_long(next_day["date"]), font=font_when, fill=pal["muted"])
-        ty += px(42 if small_hero else 56)
-        for ev in next_day["events"][:4]:
+        ty += when_h
+        for g, lh_total in zip(groups, line_heights):
             type_font, lines, lh, sp, th = fit_wrapped_text(
-                draw, ev["summary"], text_w, px(60), px(44), px(28), load_font, is_bold=True, max_lines=1)
+                draw, g["summary"], text_w, px(60), type_max, type_min, load_font, is_bold=True, max_lines=1)
             draw_lines(draw, text_x, ty, lines, type_font, pal["text"], lh, sp)
-            if ev.get("label"):
-                lbl_w = draw.textlength(lines[0] if lines else "", font=type_font) if lines else 0
-                draw.text((text_x + lbl_w + px(16), ty + px(14)), ev["label"], font=font_label, fill=pal["muted"])
-            ty += th + px(12)
+            label = ", ".join(g["labels"])
+            if label:
+                summary_w = draw.textlength(lines[0], font=type_font) if lines else 0
+                if summary_w + px(16) + draw.textlength(label, font=font_label) <= text_w:
+                    draw.text((text_x + summary_w + px(16), ty + max(0, th - int(px(30 if small else 34) * hs))),
+                              label, font=font_label, fill=pal["muted"])
+                else:
+                    draw.text((text_x, ty + th + px(2)), _ellipsize(draw, label, font_label, text_w),
+                              font=font_label, fill=pal["muted"])
+            ty += lh_total
         if data.get("next_outside_window"):
-            draw.text((text_x, hero[3] - px(56)),
+            draw.text((text_x, ty),
                       f"Keine Abfuhr in den nächsten {data.get('days_ahead', 14)} Tagen",
                       font=font_label, fill=pal["muted"])
     else:
         font_empty = load_font(px(40), True)
         draw.text((hero[0] + px(48), y + px(60)), "Keine Abfuhrtermine gefunden", font=font_empty, fill=pal["text"])
 
-    y = hero[3] + px(40)
+    y = hero[3] + px(28 if small else 40)
 
     # ── Liste: weitere Termine ───────────────────────────────────────────────
-    font_section = load_font(px(28), True)
-    font_row_date = load_font(px(30), True)
-    font_row_rel  = load_font(px(22), False)
-    font_row_type = load_font(px(28), False)
-    row_h = px(84)
-    upcoming = [d for d in days if not next_day or d["date"] != next_day["date"]]
+    rs = 0.78 if compact else 1.0
 
-    # Überschrift nur, wenn darunter mindestens eine Zeile Platz hat
-    if y + px(48) + row_h > rh - margin:
+    def lp(v: float) -> int:
+        return px(v * rs)
+
+    font_section  = load_font(lp(28), True)
+    font_row_date = load_font(lp(30), True)
+    font_row_rel  = load_font(lp(22), False)
+    font_row_type = load_font(lp(28), False)
+    row_h = lp(84)
+    upcoming = [d for d in days if not next_day or d["date"] != next_day["date"]]
+    remaining = rh - margin - y
+
+    if upcoming and remaining < lp(48) + row_h:
+        # Zu wenig Platz für Zeilen: die nächsten Tage als eine Textzeile
+        if remaining >= lp(34):
+            parts = [f"{_short_date(d['date'])} {' + '.join(g['summary'] for g in _group_events(d['events']))}"
+                     for d in upcoming[:4]]
+            draw.text((margin, y), _ellipsize(draw, "Danach: " + "  ·  ".join(parts), font_row_rel, rw - 2 * margin),
+                      font=font_row_rel, fill=pal["muted"])
         return img.convert("RGB")
+    if remaining < lp(48) + row_h:
+        return img.convert("RGB")
+
     draw.text((margin, y), f"Nächste {data.get('days_ahead', 14)} Tage", font=font_section, fill=pal["muted"])
-    y += px(48)
+    y += lp(48)
 
     if not upcoming and next_day and not data.get("next_outside_window"):
         draw.text((margin, y), "Danach keine weiteren Termine im Zeitraum.", font=font_row_type, fill=pal["muted"])
@@ -240,17 +326,17 @@ def render_garbage_module(services: ModuleRenderServices, content: object, compa
         if y + row_h > rh - margin:
             break
         draw.line([(margin, y), (rw - margin, y)], fill=pal["row_line"], width=2 if flat else 1)
-        draw.text((margin, y + px(14)), _short_date(day["date"]), font=font_row_date, fill=pal["text"])
-        draw.text((margin, y + px(50)), day["relative"], font=font_row_rel, fill=pal["muted"])
-        cx = margin + px(230)
-        for ev in day["events"][:4]:
-            chip_w, chip_h = px(30), px(40)
-            draw_bin(draw, cx, y + px(20), chip_w, chip_h, pal["bins"][ev["color"]], pal)
-            cx += chip_w + px(14)
-            label = ev["summary"] + (f"  · {ev['label']}" if ev.get("label") else "")
-            draw.text((cx, y + px(22)), label, font=font_row_type, fill=pal["text"])
-            cx += int(draw.textlength(label, font=font_row_type)) + px(34)
-            if cx > rw - margin - px(200):
+        draw.text((margin, y + lp(14)), _short_date(day["date"]), font=font_row_date, fill=pal["text"])
+        draw.text((margin, y + lp(50)), day["relative"], font=font_row_rel, fill=pal["muted"])
+        cx = margin + lp(230)
+        for g in _group_events(day["events"])[:4]:
+            chip_w, chip_h = lp(30), lp(40)
+            draw_bin(draw, cx, y + lp(20), chip_w, chip_h, pal["bins"][g["color"]], pal)
+            cx += chip_w + lp(14)
+            label = g["summary"] + (f"  · {', '.join(g['labels'])}" if g["labels"] else "")
+            draw.text((cx, y + lp(22)), label, font=font_row_type, fill=pal["text"])
+            cx += int(draw.textlength(label, font=font_row_type)) + lp(34)
+            if cx > rw - margin - lp(200):
                 break
         y += row_h
 

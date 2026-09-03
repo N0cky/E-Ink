@@ -205,3 +205,37 @@ class RenderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GarbageRendererTests(unittest.TestCase):
+    def test_same_bin_at_several_addresses_becomes_one_line(self) -> None:
+        from modules.garbage.renderer import _group_events
+        groups = _group_events([
+            {"summary": "Biotonne", "label": "Hohe Straße", "color": "green"},
+            {"summary": "Biotonne", "label": "Zwirleinstraße", "color": "green"},
+            {"summary": "Papiertonne", "label": "Hohe Straße", "color": "blue"},
+        ])
+        self.assertEqual([g["summary"] for g in groups], ["Biotonne", "Papiertonne"])
+        self.assertEqual(groups[0]["labels"], ["Hohe Straße", "Zwirleinstraße"])
+
+    def test_tile_renders_at_small_heights(self) -> None:
+        from datetime import date
+        from app.config import override_runtime_config
+        from app.module_services import ModuleRenderServices
+        from modules.garbage.data_source import build_garbage_content
+        from modules.garbage.renderer import render_garbage_module
+        events = [
+            {"date": date(2026, 9, 7), "summary": "Biotonne", "label": "Hohe Straße"},
+            {"date": date(2026, 9, 7), "summary": "Biotonne", "label": "Zwirleinstraße"},
+            {"date": date(2026, 9, 7), "summary": "Papiertonne", "label": "Hohe Straße"},
+            {"date": date(2026, 9, 10), "summary": "Restmüll", "label": "Hohe Straße"},
+        ]
+        content = build_garbage_content(events, date(2026, 9, 3), 14)
+        with override_runtime_config(display_theme="eink"):
+            base = ModuleRenderServices.from_runtime()
+            for height in (220, 300, 455, 760):
+                services = ModuleRenderServices(render_width=1200, render_height=height,
+                                                display_theme=base.display_theme, load_font=base.load_font)
+                img = render_garbage_module(services, content, compact=True)
+                self.assertEqual(img.size, (1200, height))
+
