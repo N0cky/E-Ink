@@ -56,12 +56,23 @@
 .height.hidden { visibility: hidden; }
 .row-actions { display: flex; gap: 6px; }
 
-/* ── Nachts ── */
-.night-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
-.night-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 700; }
-.night-grid input, .night-grid select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface3); color: var(--text); font-family: inherit; font-size: 13px; }
-.night-grid.disabled { opacity: .5; pointer-events: none; }
-.consequence { margin-top: 10px; }
+/* ── Zeitplan ── */
+.window-row { grid-template-columns: 18px 52px minmax(0, 1fr) auto; }
+.win-time { font-size: 12px; font-weight: 800; color: var(--text-soft); line-height: 1.3; font-variant-numeric: tabular-nums; }
+.win-edit { display: grid; gap: 12px; padding: 12px 14px 14px; margin: 0 0 8px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface3); }
+.win-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.win-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.win-grid input, .win-grid select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); font-family: inherit; font-size: 13px; min-width: 0; }
+.days-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.days-row .hint { margin-right: 6px; }
+.day { width: 38px; padding: 6px 0; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--chip-bg); color: var(--text-soft); font-family: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.day.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.win-contents { display: grid; gap: 8px; }
+.win-list { display: grid; gap: 6px; padding-left: 22px; }
+.win-list.disabled { opacity: .45; pointer-events: none; }
+.win-content { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.win-content input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+.win-content .pct { width: 58px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); font-family: inherit; font-size: 12.5px; text-align: right; }
 
 /* ── Speichern ── */
 .savebar {
@@ -154,26 +165,12 @@
 
         <div class="card"><div class="card-body">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-                <span>Nachts</span>
-                <label class="switch" title="Nachtmodus"><input type="checkbox" id="nightEnabled"><span class="track"></span></label>
+                <span>Zeitplan</span>
+                <button class="btn small" type="button" id="addWindowBtn">+ Zeitfenster</button>
             </div>
-            <div class="night-grid" id="nightGrid">
-                <label>Von <input type="time" id="nightStart" data-key="NIGHT_MODE_START"><span class="field-error" id="err-NIGHT_MODE_START"></span></label>
-                <label>Bis <input type="time" id="nightEnd" data-key="NIGHT_MODE_END"><span class="field-error" id="err-NIGHT_MODE_END"></span></label>
-                <label>Aktualisieren alle (min) <input type="number" id="nightInterval" min="1" max="720" data-key="NIGHT_MODE_INTERVAL_MINUTES"><span class="field-error" id="err-NIGHT_MODE_INTERVAL_MINUTES"></span></label>
-                <label>Was zeigen
-                    <select id="nightBehavior" data-key="NIGHT_MODE_IDLE_BEHAVIOR">
-                        <option value="rotate">Alle eingeschalteten Inhalte</option>
-                        <option value="fixed">Nur einen Inhalt</option>
-                    </select>
-                </label>
-                <label id="nightFixedWrap">Welcher Inhalt
-                    <select id="nightFixed" data-key="NIGHT_MODE_FIXED_MODULE"></select>
-                    <span class="field-error" id="err-NIGHT_MODE_FIXED_MODULE"></span>
-                </label>
-            </div>
-            <div class="hint consequence" id="nightHint"></div>
-            <div class="field-error" id="err-NIGHT_MODE_ENABLED"></div>
+            <div class="hint" id="scheduleHint" style="margin-bottom:10px"></div>
+            <div class="rows" id="windowRows"></div>
+            <div class="field-error" id="err-SCHEDULE_WINDOWS"></div>
         </div></div>
 
         <div class="savebar">
@@ -386,22 +383,7 @@
         renderHeightSum();
         $('liveRows').innerHTML = draft.live.length ? draft.live.map(function (m) { return rowHtml(m, true); }).join('') : '<div class="empty">Keine Live-Inhalte installiert.</div>';
 
-        var n = draft.night;
-        $('nightEnabled').checked = !!n.enabled;
-        $('nightGrid').classList.toggle('disabled', !n.enabled);
-        $('nightStart').value = n.start || '23:00';
-        $('nightEnd').value = n.end || '07:00';
-        $('nightInterval').value = n.interval_minutes || 15;
-        $('nightBehavior').value = n.behavior || 'rotate';
-        var fixedSel = $('nightFixed');
-        var enabledContent = draft.content.filter(function (m) { return m.enabled; });
-        fixedSel.innerHTML = '<option value="">– bitte wählen –</option>' + enabledContent.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>'; }).join('');
-        fixedSel.value = n.fixed_module || '';
-        $('nightFixedWrap').style.display = n.behavior === 'fixed' ? '' : 'none';
-        $('nightHint').textContent = !n.enabled ? 'Nachts gilt dasselbe Programm wie tagsüber.'
-            : (n.behavior === 'fixed'
-                ? ('Von ' + n.start + ' bis ' + n.end + ' zeigt das Display nur ' + (findModule(n.fixed_module) ? findModule(n.fixed_module).name : 'den gewählten Inhalt') + (draft.layout === 'dashboard' ? ' als einzige Kachel' : '') + ', aktualisiert alle ' + n.interval_minutes + ' min.')
-                : ('Von ' + n.start + ' bis ' + n.end + ' läuft das Programm weiter, aber nur alle ' + n.interval_minutes + ' min statt alle ' + Math.round(draft.rotation_seconds / 60) + ' min.'));
+        renderSchedule();
         bindRows();
         $('saveState').textContent = dirty ? 'Nicht gespeicherte Änderungen' : 'Keine Änderungen';
         $('saveState').classList.toggle('dirty', dirty);
@@ -476,14 +458,181 @@
         r.addEventListener('change', function () { draft.layout = r.value; markDirty(); });
     });
     $('rotationSeconds').addEventListener('change', function () { draft.rotation_seconds = parseInt(this.value, 10) || 120; markDirty(); });
-    $('nightEnabled').addEventListener('change', function () { draft.night.enabled = this.checked; markDirty(); });
-    $('nightStart').addEventListener('change', function () { draft.night.start = this.value; markDirty(); });
-    $('nightEnd').addEventListener('change', function () { draft.night.end = this.value; markDirty(); });
-    $('nightInterval').addEventListener('change', function () { draft.night.interval_minutes = parseInt(this.value, 10) || 15; markDirty(); });
-    $('nightBehavior').addEventListener('change', function () { draft.night.behavior = this.value; markDirty(); });
-    $('nightFixed').addEventListener('change', function () { draft.night.fixed_module = this.value; markDirty(); });
+    /* ── Zeitplan ── */
+    var DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+    var editingWindow = -1;   // Index des Fensters, dessen Editor offen ist
 
-    $('discardBtn').addEventListener('click', function () { dirty = false; draft = JSON.parse(JSON.stringify(state)); clearErrors(); render(); });
+    function daysText(days) {
+        var d = (days || []).slice().sort(function (a, b) { return a - b; });
+        if (d.length === 7) return 'täglich';
+        if (d.join() === '0,1,2,3,4') return 'Mo–Fr';
+        if (d.join() === '5,6') return 'Sa, So';
+        if (!d.length) return 'kein Tag';
+        return d.map(function (i) { return DAY_NAMES[i]; }).join(', ');
+    }
+    function intervalText(sec) {
+        if (!sec) return 'Takt wie im Programm';
+        if (sec % 3600 === 0) return 'alle ' + (sec / 3600) + ' h';
+        if (sec % 60 === 0) return 'alle ' + (sec / 60) + ' min';
+        return 'alle ' + sec + ' s';
+    }
+    function untilText(sec) {
+        if (sec < 3600) return 'in ' + Math.max(1, Math.round(sec / 60)) + ' min';
+        if (sec < 86400) return 'in ' + Math.round(sec / 3600) + ' h';
+        return 'in ' + Math.round(sec / 86400) + ' Tagen';
+    }
+    function effectiveLayout(w) { return w.layout || draft.layout; }
+    function windowSummary(w) {
+        var parts = [daysText(w.days) + ' ' + w.start + '–' + w.end];
+        var dash = effectiveLayout(w) === 'dashboard';
+        parts.push((dash ? 'Dashboard' : 'Rotation') + (w.layout ? '' : ' (wie im Programm)'));
+        if (w.content && w.content.length) {
+            parts.push(w.content.map(function (c) { var m = findModule(c.id); return (m ? m.name : c.id) + (dash && c.height ? ' ' + c.height + ' %' : ''); }).join(', '));
+        } else parts.push('alle Inhalte des Programms');
+        parts.push(intervalText(w.interval_seconds));
+        return parts.join(' · ');
+    }
+
+    function renderSchedule() {
+        if (!draft.schedule) draft.schedule = { windows: [] };
+        var wins = draft.schedule.windows;
+        var hint = $('scheduleHint');
+        if (!wins.length) {
+            hint.textContent = 'Kein Zeitfenster: das Programm gilt rund um die Uhr. Mit Zeitfenstern zeigst du morgens andere Inhalte als abends oder aktualisierst nachts seltener.';
+        } else {
+            var text = 'Ohne passendes Fenster gilt das Programm. Überschneiden sich Fenster, gewinnt das obere.';
+            var live = state && state.schedule ? state.schedule : {};
+            if (!dirty && live.active_name) text += ' Jetzt aktiv: „' + live.active_name + '“' + (live.next_name && live.seconds_until_change ? ', danach „' + live.next_name + '“ ' + untilText(live.seconds_until_change) + '.' : '.');
+            else if (!dirty && live.next_name) text += ' Als Nächstes: „' + live.next_name + '“ ' + untilText(live.seconds_until_change) + '.';
+            if (live.source === 'night') text += ' Das Fenster „Nachts“ stammt aus dem alten Nachtmodus und wird beim Speichern in den Zeitplan übernommen.';
+            hint.textContent = text;
+        }
+        $('windowRows').innerHTML = wins.map(function (w, i) { return windowRowHtml(w, i); }).join('');
+        bindWindowRows();
+    }
+
+    function windowRowHtml(w, i) {
+        var summary = windowSummary(w);
+        var head = '<div class="row window-row" draggable="true" data-win="' + i + '">'
+            + '<span class="handle" title="Ziehen zum Sortieren">⠿</span>'
+            + '<span class="win-time">' + esc(w.start) + '<br>' + esc(w.end) + '</span>'
+            + '<div class="row-main"><div class="row-name">' + esc(w.name) + (!dirty && w.active ? ' <span class="chip accent"><span class="dot"></span>jetzt aktiv</span>' : '') + '</div>'
+            + '<div class="row-sum" title="' + esc(summary) + '">' + esc(summary) + '</div></div>'
+            + '<span class="row-actions"><button class="btn small" type="button" data-edit-win="' + i + '">' + (editingWindow === i ? 'Fertig' : 'Bearbeiten') + '</button>'
+            + '<button class="btn small" type="button" data-del-win="' + i + '">Löschen</button></span></div>';
+        return editingWindow === i ? head + windowEditorHtml(w, i) : head;
+    }
+
+    function windowEditorHtml(w, i) {
+        var dash = effectiveLayout(w) === 'dashboard';
+        var dayBtns = DAY_NAMES.map(function (n, d) { return '<button type="button" class="day' + (w.days.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + d + '">' + n + '</button>'; }).join('');
+        var contents = draft.content.filter(function (m) { return m.status.state !== 'missing'; });
+        var pick = w.content && w.content.length;
+        var list = contents.map(function (m) {
+            var sel = (w.content || []).find(function (c) { return c.id === m.id; });
+            return '<label class="win-content"><input type="checkbox" data-wc="' + esc(m.id) + '"' + (sel ? ' checked' : '') + '> ' + esc(m.name)
+                + (dash ? ' <input type="number" class="pct" min="5" max="100" placeholder="auto" data-wh="' + esc(m.id) + '" value="' + (sel && sel.height ? esc(sel.height) : '') + '"' + (sel ? '' : ' disabled') + '> %' : '')
+                + (dash && !m.tile_supported ? ' <span class="chip warn">keine Kachel</span>' : '') + '</label>';
+        }).join('');
+        return '<div class="win-edit" data-win-edit="' + i + '">'
+            + '<div class="win-grid">'
+            + '<label>Name <input type="text" data-wf="name" value="' + esc(w.name) + '" maxlength="40"></label>'
+            + '<label>Von <input type="time" data-wf="start" value="' + esc(w.start) + '"></label>'
+            + '<label>Bis <input type="time" data-wf="end" value="' + esc(w.end) + '"></label>'
+            + '<label>Darstellung <select data-wf="layout"><option value="">Wie im Programm</option><option value="rotation"' + (w.layout === 'rotation' ? ' selected' : '') + '>Rotation</option><option value="dashboard"' + (w.layout === 'dashboard' ? ' selected' : '') + '>Dashboard</option></select></label>'
+            + '<label>Takt (min) <input type="number" min="1" max="1440" data-wf="interval" placeholder="wie im Programm" value="' + (w.interval_seconds ? Math.round(w.interval_seconds / 60) : '') + '"></label>'
+            + '</div>'
+            + '<div class="days-row"><span class="hint">Tage</span>' + dayBtns
+            + '<button type="button" class="btn small" data-days="0,1,2,3,4">Mo–Fr</button><button type="button" class="btn small" data-days="5,6">Sa+So</button><button type="button" class="btn small" data-days="0,1,2,3,4,5,6">Täglich</button></div>'
+            + '<div class="win-contents">'
+            + '<label class="preview-check"><input type="radio" name="wc-mode-' + i + '" value="all"' + (pick ? '' : ' checked') + '> Alle Inhalte des Programms</label>'
+            + '<label class="preview-check"><input type="radio" name="wc-mode-' + i + '" value="pick"' + (pick ? ' checked' : '') + '> Nur diese Inhalte' + (dash ? ' (Reihenfolge und Höhe der Kacheln)' : '') + ':</label>'
+            + '<div class="win-list' + (pick ? '' : ' disabled') + '">' + (list || '<span class="hint">Keine eingerichteten Inhalte.</span>') + '</div></div>'
+            + '<div class="hint">Leere Felder übernehmen den Wert aus dem Programm. Liegt „Bis“ vor „Von“, läuft das Fenster über Mitternacht.</div>'
+            + '</div>';
+    }
+
+    function markDirtySchedule(rerender) {
+        dirty = true;
+        $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false;
+        if (rerender) renderSchedule();
+    }
+
+    function bindWindowRows() {
+        var wins = draft.schedule.windows;
+        document.querySelectorAll('[data-edit-win]').forEach(function (b) {
+            b.addEventListener('click', function () { var i = +b.getAttribute('data-edit-win'); editingWindow = editingWindow === i ? -1 : i; renderSchedule(); });
+        });
+        document.querySelectorAll('[data-del-win]').forEach(function (b) {
+            b.addEventListener('click', function () { wins.splice(+b.getAttribute('data-del-win'), 1); editingWindow = -1; markDirty(); });
+        });
+        var ed = document.querySelector('[data-win-edit]');
+        if (ed) {
+            var w = wins[+ed.getAttribute('data-win-edit')];
+            var order = draft.content.map(function (m) { return m.id; });
+            var sortContent = function () { w.content.sort(function (a, b) { return order.indexOf(a.id) - order.indexOf(b.id); }); };
+            ed.querySelectorAll('[data-wf]').forEach(function (inp) {
+                inp.addEventListener('change', function () {
+                    var f = inp.getAttribute('data-wf');
+                    if (f === 'interval') w.interval_seconds = inp.value ? Math.max(1, parseInt(inp.value, 10) || 1) * 60 : 0;
+                    else w[f] = inp.value;
+                    markDirtySchedule(true);
+                });
+            });
+            ed.querySelectorAll('[data-day]').forEach(function (b) {
+                b.addEventListener('click', function () { var d = +b.getAttribute('data-day'); var k = w.days.indexOf(d); if (k >= 0) w.days.splice(k, 1); else w.days.push(d); markDirtySchedule(true); });
+            });
+            ed.querySelectorAll('[data-days]').forEach(function (b) {
+                b.addEventListener('click', function () { w.days = b.getAttribute('data-days').split(',').map(Number); markDirtySchedule(true); });
+            });
+            ed.querySelectorAll('input[type="radio"]').forEach(function (r) {
+                r.addEventListener('change', function () {
+                    if (r.value === 'all') w.content = [];
+                    else if (!w.content.length) { var first = draft.content.find(function (m) { return m.enabled && m.status.state !== 'missing'; }); w.content = first ? [{ id: first.id, height: null }] : []; }
+                    markDirtySchedule(true);
+                });
+            });
+            ed.querySelectorAll('[data-wc]').forEach(function (cb) {
+                cb.addEventListener('change', function () {
+                    var id = cb.getAttribute('data-wc');
+                    w.content = w.content.filter(function (c) { return c.id !== id; });
+                    if (cb.checked) w.content.push({ id: id, height: null });
+                    sortContent(); markDirtySchedule(true);
+                });
+            });
+            ed.querySelectorAll('[data-wh]').forEach(function (inp) {
+                inp.addEventListener('input', function () { var c = w.content.find(function (c) { return c.id === inp.getAttribute('data-wh'); }); if (c) { c.height = inp.value ? parseInt(inp.value, 10) : null; markDirtySchedule(false); } });
+            });
+        }
+        var dragFrom = null;
+        document.querySelectorAll('#windowRows .window-row').forEach(function (row) {
+            row.addEventListener('dragstart', function (e) { dragFrom = +row.getAttribute('data-win'); row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+            row.addEventListener('dragend', function () { row.classList.remove('dragging'); document.querySelectorAll('.row.over').forEach(function (r) { r.classList.remove('over'); }); });
+            row.addEventListener('dragover', function (e) { e.preventDefault(); row.classList.add('over'); });
+            row.addEventListener('dragleave', function () { row.classList.remove('over'); });
+            row.addEventListener('drop', function (e) {
+                e.preventDefault();
+                var to = +row.getAttribute('data-win');
+                if (dragFrom === null || dragFrom === to) return;
+                var moved = wins.splice(dragFrom, 1)[0];
+                wins.splice(to, 0, moved);
+                editingWindow = -1; markDirty();
+            });
+        });
+    }
+
+    $('addWindowBtn').addEventListener('click', function () {
+        if (!draft.schedule) draft.schedule = { windows: [] };
+        var wins = draft.schedule.windows;
+        var hasNight = wins.some(function (w) { return w.name === 'Nachts'; });
+        wins.push(hasNight
+            ? { name: 'Fenster ' + (wins.length + 1), days: [0, 1, 2, 3, 4], start: '06:00', end: '09:00', layout: '', interval_seconds: 0, content: [] }
+            : { name: 'Nachts', days: [0, 1, 2, 3, 4, 5, 6], start: '23:00', end: '07:00', layout: '', interval_seconds: 900, content: [] });
+        editingWindow = wins.length - 1;
+        markDirty();
+    });
+
+    $('discardBtn').addEventListener('click', function () { dirty = false; editingWindow = -1; draft = JSON.parse(JSON.stringify(state)); clearErrors(); render(); });
 
     /* ── Speichern ── */
     function clearErrors() {
@@ -513,11 +662,14 @@
             rotation_seconds: draft.rotation_seconds,
             content: draft.content.map(function (m) { return { id: m.id, enabled: m.enabled, height: m.height || null }; }),
             live: draft.live.map(function (m) { return { id: m.id, enabled: m.enabled }; }),
-            night: { enabled: draft.night.enabled, start: draft.night.start, end: draft.night.end, interval_minutes: draft.night.interval_minutes, behavior: draft.night.behavior, fixed_module: draft.night.fixed_module || '' }
+            schedule: { windows: (draft.schedule ? draft.schedule.windows : []).map(function (w) {
+                return { name: w.name, days: w.days, start: w.start, end: w.end, layout: w.layout || '', interval_seconds: w.interval_seconds || 0,
+                         content: (w.content || []).map(function (c) { return { id: c.id, height: c.height || null }; }) };
+            }) }
         };
         try {
             var result = await ui.json('/api/display', { method: 'PUT', body: payload });
-            dirty = false; clearErrors();
+            dirty = false; editingWindow = -1; clearErrors();
             state = result.display; draft = JSON.parse(JSON.stringify(state));
             render(); renderShot();
             ui.toast('Gespeichert. Das Display holt sich das neue Bild beim nächsten Aufwachen.', 'ok', 4000);

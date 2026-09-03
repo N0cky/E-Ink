@@ -30,7 +30,7 @@ log = get_logger(__name__)
 
 # Framework-Felder, die die Anzeige-Seite verwaltet (nicht mehr als Formularfeld)
 DISPLAY_MANAGED_KEYS = {
-    "IDLE_MODULES", "IDLE_LAYOUT", "DASHBOARD_TILES", "IDLE_MODULE_ROTATION_SECONDS",
+    "IDLE_MODULES", "IDLE_LAYOUT", "DASHBOARD_TILES", "IDLE_MODULE_ROTATION_SECONDS", "SCHEDULE_WINDOWS",
     "NIGHT_MODE_ENABLED", "NIGHT_MODE_START", "NIGHT_MODE_END",
     "NIGHT_MODE_INTERVAL_MINUTES", "NIGHT_MODE_IDLE_BEHAVIOR", "NIGHT_MODE_FIXED_MODULE",
 }
@@ -118,6 +118,12 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
 
     night_fixed = _registry.get_module_by_id(cfg.night_mode_fixed_module_id)
 
+    from app.config import now_local
+    from app.schedule import active_window, describe_window, effective_windows
+    windows = effective_windows(cfg)
+    module_names = {m.MODULE_ID: m.MODULE_NAME for m in _registry.get_modules()}
+    active, seconds_until_change, upcoming = active_window(windows, now_local()) if windows else (None, 0, None)
+
     from app.device import firmware_info, last_clean_at, rssi_quality, test_banner_pending
     fw = firmware_info()
     last_clean = last_clean_at()
@@ -145,6 +151,14 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
         "layout":           cfg.idle_layout,
         "rotation_seconds": cfg.idle_module_rotation_seconds,
         "theme":            cfg.display_theme,
+        "schedule": {
+            "windows": [{**w.to_dict(), "summary": describe_window(w, module_names), "active": w is active} for w in windows],
+            # "night": Fenster stammt aus dem alten Nachtmodus, "schedule": gespeicherter Zeitplan
+            "source":               "schedule" if cfg.schedule_windows else ("night" if windows else ""),
+            "active_name":          active.name if active else "",
+            "seconds_until_change": seconds_until_change,
+            "next_name":            upcoming.name if upcoming else "",
+        },
         "night": {
             "enabled":          cfg.night_mode_enabled,
             "start":            cfg.night_mode_start,
@@ -254,6 +268,14 @@ def display_updates_and_notices(payload: dict) -> tuple[dict[str, str], list[str
             if mod is not None and mod.ENABLED_KEY:
                 updates[mod.ENABLED_KEY] = "true" if item.get("enabled") else "false"
 
+    schedule_payload = payload.get("schedule")
+    if isinstance(schedule_payload, dict) and isinstance(schedule_payload.get("windows"), list):
+        from app.schedule import serialize_windows, window_from_dict
+        windows = [window_from_dict(w, i) for i, w in enumerate(schedule_payload["windows"]) if isinstance(w, dict)]
+        updates["SCHEDULE_WINDOWS"] = serialize_windows(windows)
+        # Der Zeitplan löst den alten Nachtmodus ab (die Oberfläche hat ihn als Fenster übernommen)
+        updates["NIGHT_MODE_ENABLED"] = "false"
+
     night = payload.get("night")
     if isinstance(night, dict):
         mapping = {
@@ -266,6 +288,30 @@ def display_updates_and_notices(payload: dict) -> tuple[dict[str, str], list[str
                 value = night[key]
                 updates[env_key] = ("true" if value else "false") if isinstance(value, bool) else str(value).strip()
     return updates, notices
+
+
+def schedule_errors(payload: dict, programme_layout: str = "rotation") -> list[str]:
+    """
+    Prüft die Zeitfenster eines Anzeige-Payloads, bevor sie gespeichert werden:
+    Wochentage, Zeiten, Takt, bekannte Inhalte, und dass Dashboard-Fenster nur
+    Inhalte mit Kachel enthalten (ererbtes Layout zählt mit).
+    """
+    from app.schedule import validate_windows, window_from_dict
+    schedule_payload = payload.get("schedule")
+    if not isinstance(schedule_payload, dict) or not isinstance(schedule_payload.get("windows"), list):
+        return []
+    windows = [window_from_dict(w, i) for i, w in enumerate(schedule_payload["windows"]) if isinstance(w, dict)]
+    idle = {m.MODULE_ID: m for m in _registry.get_idle_modules()}
+    errors = validate_windows(windows, set(idle))
+    for w in windows:
+        layout = w.layout or programme_layout
+        if layout != "dashboard":
+            continue
+        for mid in w.module_ids:
+            mod = idle.get(mid)
+            if mod is not None and not mod.supports_tile():
+                errors.append(f"Zeitplan: Fenster „{w.name}“: {mod.MODULE_NAME} hat keine Kachel-Darstellung und wird im Dashboard nicht gezeigt.")
+    return errors
 
 
 # ---------------------------------------------------------------------------

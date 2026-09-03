@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import app.server as server_module
+from app.schedule import ALL_DAYS, Window
 from app.config import CONFIG_DIR, get_settings_values, resolve_env_file_path
 
 
@@ -118,7 +119,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
                 "GALLERY_INTERVAL_SECONDS": "420",
             },
         ), patch(
-            "app.server._get_night_mode_state",
+            "app.server._get_schedule_state",
             return_value={"active": False, "seconds_until_end": 0, "label": ""},
         ):
             response = self.client.get("/meta.json")
@@ -137,20 +138,20 @@ class SettingsValidationFlowTest(unittest.TestCase):
             patch("app.server.get_settings_values", return_value={}),
             patch("app.server.get_cfg", return_value=SimpleNamespace(refresh_interval=60)),
             patch("app.server._registry.get_modules", return_value=[gallery]),
-            patch("app.server._get_night_mode_state", return_value={"active": False, "seconds_until_end": 0, "label": ""}),
+            patch("app.server._get_schedule_state", return_value={"active": False, "seconds_until_end": 0, "label": ""}),
         ):
             self.assertEqual(server_module._get_background_poll_seconds(), 30)
 
     def test_night_mode_clamps_next_wake_to_mode_end(self) -> None:
         cfg = SimpleNamespace(
             idle_module_rotation_seconds=180,
-            night_mode_interval_seconds=900,
-            night_mode_end="07:00",
             refresh_interval=60,
         )
+        night = Window("Nachts", ALL_DAYS, 23 * 60, 7 * 60, "", 900, ())
         with (
             patch("app.server.get_cfg", return_value=cfg),
-            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 120, "label": "23:00–07:00"}),
+            patch("app.server._get_schedule_state", return_value={"active": True, "window": night, "seconds_until_end": 120,
+                                                                   "seconds_until_change": 120, "label": night.label, "next": None}),
         ):
             seconds, reason = server_module._suggest_next_wake("__no_content__", "idle")
 
@@ -164,7 +165,8 @@ class SettingsValidationFlowTest(unittest.TestCase):
         )
         with (
             patch("app.server.get_cfg", return_value=cfg),
-            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 120, "label": "23:00–07:00"}),
+            patch("app.server._get_schedule_state", return_value={"active": True, "window": Window("Nachts", ALL_DAYS, 1380, 420, "", 900, ()),
+                                                                   "seconds_until_end": 120, "seconds_until_change": 120, "label": "23:00–07:00", "next": None}),
         ):
             seconds, reason = server_module._suggest_next_wake("plex:123:playing:slot", "plex")
 
@@ -174,15 +176,12 @@ class SettingsValidationFlowTest(unittest.TestCase):
     def test_night_mode_can_pin_a_single_idle_module(self) -> None:
         dwd = SimpleNamespace(MODULE_ID="dwd_weather", is_enabled=lambda env: True)
         tagesschau = SimpleNamespace(MODULE_ID="tagesschau", is_enabled=lambda env: True)
-        cfg = SimpleNamespace(
-            idle_module_rotation_seconds=180,
-            night_mode_idle_behavior="fixed",
-            night_mode_fixed_module_id="tagesschau",
-            night_mode_interval_seconds=900,
-        )
+        cfg = SimpleNamespace(idle_module_rotation_seconds=180)
+        night = Window("Nachts", ALL_DAYS, 23 * 60, 7 * 60, "", 900, (("tagesschau", 0),))
         with (
             patch("app.server.get_cfg", return_value=cfg),
-            patch("app.server._get_night_mode_state", return_value={"active": True, "seconds_until_end": 3600, "label": "23:00–07:00"}),
+            patch("app.server._get_schedule_state", return_value={"active": True, "window": night, "seconds_until_end": 3600,
+                                                                   "seconds_until_change": 3600, "label": night.label, "next": None}),
             patch("app.server._registry.get_idle_modules", return_value=[dwd, tagesschau]),
         ):
             modules, rotation = server_module._get_effective_idle_modules({})

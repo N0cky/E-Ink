@@ -257,6 +257,19 @@ SETTINGS_FIELDS: list[dict] = [
         "help":        "Intervall in Sekunden für die Rotation zwischen mehreren Idle-Modulen.",
     },
     {
+        "name":        "SCHEDULE_WINDOWS",
+        "label":       "Zeitplan",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        True,
+        "default":     "",
+        "placeholder": "Morgens|Mo-Fr|06:00-09:00|rotation|120|dwd_weather,garbage; Nachts|*|23:00-07:00||900|",
+        "help": (
+            "Zeitfenster mit eigenen Inhalten, Darstellung und Takt: 'Name|Tage|HH:MM-HH:MM|layout|sekunden|inhalte', "
+            "mehrere per Semikolon. Leere Teile erben vom Programm. Wird auf der Anzeige-Seite gepflegt."
+        ),
+    },
+    {
         "name":    "NIGHT_MODE_ENABLED",
         "label":   "Nachtmodus",
         "type":    "select",
@@ -359,6 +372,7 @@ SETTINGS_GROUPS: list[dict] = [
             "IDLE_LAYOUT",
             "DASHBOARD_TILES",
             "IDLE_MODULE_ROTATION_SECONDS",
+            "SCHEDULE_WINDOWS",
             "NIGHT_MODE_ENABLED",
             "NIGHT_MODE_START",
             "NIGHT_MODE_END",
@@ -496,6 +510,7 @@ class RuntimeConfig:
     idle_module_rotation_seconds:  int   = 120
     idle_layout:                   str   = "rotation"     # rotation | dashboard
     dashboard_tiles:               tuple = ()             # ((module_id, prozent), …)
+    schedule_windows:              tuple = ()             # (schedule.Window, …) – leer: alter Nachtmodus gilt
     night_mode_enabled:            bool  = False
     night_mode_start:              str   = "23:00"
     night_mode_end:                str   = "07:00"
@@ -706,6 +721,10 @@ def validate_settings(updates: dict[str, str], all_fields: list[dict] | None = N
             elif fixed_module not in active_idle:
                 errors.append("Festes Nachtmodul: Das Modul muss auch in den aktiven Idle-Modulen enthalten sein.")
 
+    if "SCHEDULE_WINDOWS" in updates:
+        from app.schedule import validate_raw
+        errors.extend(validate_raw(updates.get("SCHEDULE_WINDOWS", "")))
+
     return errors
 
 
@@ -735,6 +754,8 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     if idle_layout not in {"rotation", "dashboard"}:
         idle_layout = "rotation"
     dashboard_tiles = parse_dashboard_tiles(get_env_value(settings, "DASHBOARD_TILES", ""))
+    from app.schedule import parse_windows, serialize_windows
+    schedule_windows = tuple(parse_windows(get_env_value(settings, "SCHEDULE_WINDOWS", "")))
     night_mode_enabled = parse_bool_env(settings.get("NIGHT_MODE_ENABLED"), False)
     night_mode_start = get_env_value(settings, "NIGHT_MODE_START", "23:00")
     night_mode_end = get_env_value(settings, "NIGHT_MODE_END", "07:00")
@@ -772,6 +793,7 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
         "IDLE_LAYOUT": as_env_value(idle_layout),
         "DASHBOARD_TILES": as_env_value(", ".join(f"{m}:{p}" if p else m for m, p in dashboard_tiles)),
+        "SCHEDULE_WINDOWS": as_env_value(serialize_windows(list(schedule_windows))),
         "NIGHT_MODE_ENABLED": as_env_value(night_mode_enabled),
         "NIGHT_MODE_START": as_env_value(night_mode_start),
         "NIGHT_MODE_END": as_env_value(night_mode_end),
@@ -797,6 +819,7 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         idle_module_rotation_seconds=idle_rotation_seconds,
         idle_layout=idle_layout,
         dashboard_tiles=dashboard_tiles,
+        schedule_windows=schedule_windows,
         night_mode_enabled=night_mode_enabled,
         night_mode_start=night_mode_start,
         night_mode_end=night_mode_end,

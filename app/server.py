@@ -7,6 +7,8 @@ Module werden beim Start automatisch aus dem modules/-Verzeichnis geladen.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import hashlib
 import io
 import json as _json
@@ -126,76 +128,114 @@ def _get_local_now() -> datetime:
     return now_local()
 
 
-def _get_night_mode_state(now_local: datetime | None = None) -> dict[str, int | bool | str]:
+def _get_schedule_state(now_local: datetime | None = None) -> dict:
+    """
+    Zeitplan-Zustand: aktives Fenster (gespeicherter Zeitplan oder alter
+    Nachtmodus), Sekunden bis zur nächsten Änderung (Ende des aktiven
+    Fensters oder Beginn des nächsten) und das nächste beginnende Fenster.
+    """
+    from app import schedule
     cfg = get_cfg()
-    if not cfg.night_mode_enabled or cfg.night_mode_start_minutes == cfg.night_mode_end_minutes:
-        return {"active": False, "seconds_until_end": 0, "label": ""}
-
+    windows = schedule.effective_windows(cfg)
+    if not windows:
+        return {"active": False, "window": None, "seconds_until_end": 0, "seconds_until_change": 0,
+                "label": "", "name": "", "next": None}
     now_local = now_local or _get_local_now()
-    current_minutes = now_local.hour * 60 + now_local.minute
-    start_minutes = cfg.night_mode_start_minutes
-    end_minutes = cfg.night_mode_end_minutes
-
-    if start_minutes < end_minutes:
-        active = start_minutes <= current_minutes < end_minutes
-        end_day_offset = 0
-    else:
-        active = current_minutes >= start_minutes or current_minutes < end_minutes
-        end_day_offset = 1 if current_minutes >= start_minutes else 0
-
-    if not active:
-        return {"active": False, "seconds_until_end": 0, "label": f"{cfg.night_mode_start}–{cfg.night_mode_end}"}
-
-    end_time = now_local.replace(
-        hour=end_minutes // 60,
-        minute=end_minutes % 60,
-        second=0,
-        microsecond=0,
-    )
-    if end_day_offset:
-        from datetime import timedelta
-        end_time = end_time + timedelta(days=1)
-
-    seconds_until_end = max(1, int((end_time - now_local).total_seconds()))
+    active, seconds, upcoming = schedule.active_window(windows, now_local)
     return {
-        "active": True,
-        "seconds_until_end": seconds_until_end,
-        "label": f"{cfg.night_mode_start}–{cfg.night_mode_end}",
+        "active":               active is not None,
+        "window":               active,
+        "seconds_until_end":    seconds if active is not None else 0,
+        "seconds_until_change": seconds,
+        "label":                active.label if active is not None else "",
+        "name":                 active.name if active is not None else "",
+        "next":                 upcoming,
     }
 
 
-def _apply_night_mode_interval(base_seconds: int, base_reason: str) -> tuple[int, str]:
-    cfg = get_cfg()
-    night_state = _get_night_mode_state()
-    if not night_state["active"]:
-        return max(10, int(base_seconds)), base_reason
+def _with_config(cfg, **changes):
+    """Kopie der Config mit geänderten Feldern (RuntimeConfig ist eingefroren)."""
+    try:
+        return dataclasses.replace(cfg, **changes)
+    except TypeError:
+        clone = copy.copy(cfg)
+        for key, value in changes.items():
+            setattr(clone, key, value)
+        return clone
 
-    effective = max(10, max(int(base_seconds), int(cfg.night_mode_interval_seconds)))
-    seconds_until_end = int(night_state["seconds_until_end"])
-    if seconds_until_end < effective:
-        return max(10, seconds_until_end), f"Nachtmodus endet um {cfg.night_mode_end} – pünktlicher Wechsel in den Tagesmodus"
-    return effective, f"Nachtmodus aktiv ({night_state['label']}) – reduziertes Update-Intervall"
+
+def _effective_programme(env: dict[str, str], state: dict | None = None) -> tuple[dict[str, str], object, dict]:
+    """
+    Programm unter Berücksichtigung des Zeitplans: (env, cfg, Zustand). Ist
+    ein Fenster aktiv, ersetzen seine Inhalte, seine Darstellung und sein
+    Takt die Werte des Programms – in env für die Module (is_enabled) und in
+    cfg für Layout und Dashboard-Kacheln. Leere Fensterfelder erben.
+    """
+    state = state or _get_schedule_state()
+    cfg = get_cfg()
+    window = state.get("window")
+    if window is None:
+        return env, cfg, state
+    env = dict(env)
+    changes: dict = {}
+    if window.content:
+        env["IDLE_MODULES"] = ",".join(window.module_ids)
+        env["DASHBOARD_TILES"] = ", ".join(f"{m}:{p}" if p else m for m, p in window.content)
+        changes["dashboard_tiles"] = tuple(window.content)
+    if window.layout:
+        env["IDLE_LAYOUT"] = window.layout
+        changes["idle_layout"] = window.layout
+    if window.interval_seconds:
+        env["IDLE_MODULE_ROTATION_SECONDS"] = str(window.interval_seconds)
+        changes["idle_module_rotation_seconds"] = int(window.interval_seconds)
+    return env, (_with_config(cfg, **changes) if changes else cfg), state
+
+
+def _format_interval(seconds: int) -> str:
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600} h"
+    if seconds % 60 == 0:
+        return f"{seconds // 60} min"
+    return f"{seconds} s"
+
+
+def _apply_schedule_interval(base_seconds: int, base_reason: str) -> tuple[int, str]:
+    """
+    Wake-Intervall eines Idle-Bilds mit Zeitplan: im Fenster gilt dessen Takt
+    (nie schneller als das Modul verlangt), an der Fenstergrenze wird
+    pünktlich geweckt – beim Ende des aktiven wie beim Beginn des nächsten.
+    """
+    state = _get_schedule_state()
+    window = state.get("window")
+    base = max(10, int(base_seconds))
+    if window is not None:
+        effective = max(base, int(window.interval_seconds or base))
+        until = int(state.get("seconds_until_end", 0) or 0)
+        if 0 < until < effective:
+            return max(10, until), f"Zeitfenster „{window.name}“ endet um {window.end_text} – pünktlicher Wechsel"
+        return effective, f"Zeitfenster „{window.name}“ ({window.label}) – alle {_format_interval(effective)}"
+    upcoming = state.get("next")
+    until = int(state.get("seconds_until_change", 0) or 0)
+    if upcoming is not None and 0 < until < base:
+        return max(10, until), f"Zeitfenster „{upcoming.name}“ beginnt um {upcoming.start_text} – pünktlicher Wechsel"
+    return base, base_reason
 
 
 def _get_effective_idle_modules(env: dict[str, str]) -> tuple[list, int]:
-    cfg = get_cfg()
+    """Idle-Module und Takt, die jetzt gelten: das Programm oder das aktive Zeitfenster."""
+    raw_env = env
+    env, cfg, state = _effective_programme(env)
     enabled_idle = [m for m in _registry.get_idle_modules() if m.is_enabled(env)]
-    if not enabled_idle:
-        return [], max(cfg.idle_module_rotation_seconds, 1)
-
-    night_state = _get_night_mode_state()
-    if not night_state["active"]:
-        return enabled_idle, max(cfg.idle_module_rotation_seconds, 1)
-
-    if cfg.night_mode_idle_behavior == "fixed" and cfg.night_mode_fixed_module_id:
-        fixed = next((m for m in enabled_idle if m.MODULE_ID == cfg.night_mode_fixed_module_id), None)
-        if fixed is not None:
-            return [fixed], max(cfg.night_mode_interval_seconds, 1)
-        log.warning(
-            f"Nachtmodus: festes Modul '{cfg.night_mode_fixed_module_id}' ist nicht aktiv, nutze normale Idle-Rotation"
-        )
-
-    return enabled_idle, max(cfg.night_mode_interval_seconds, 1)
+    rotation = max(int(getattr(cfg, "idle_module_rotation_seconds", 120)), 1)
+    window = state.get("window")
+    if window is None or not window.content:
+        return enabled_idle, rotation
+    ids = list(window.module_ids)
+    chosen = sorted((m for m in enabled_idle if m.MODULE_ID in ids), key=lambda m: ids.index(m.MODULE_ID))
+    if chosen:
+        return chosen, rotation
+    log.warning(f"Zeitfenster „{window.name}“: keiner seiner Inhalte ist bereit – das Programm läuft weiter")
+    return [m for m in _registry.get_idle_modules() if m.is_enabled(raw_env)], rotation
 
 
 def _compute_image_hash() -> str:
@@ -227,7 +267,7 @@ def _suggest_next_wake(state: str, media_type: str) -> tuple[int, str]:
         return cfg.refresh_interval * 5, "Plex unbekannt/inaktiv – konservativer Fallback"
 
     if state in ("idle", "__no_content__"):
-        return _apply_night_mode_interval(cfg.idle_module_rotation_seconds, "Kein aktiver Inhalt – Idle-Rotation")
+        return _apply_schedule_interval(cfg.idle_module_rotation_seconds, "Kein aktiver Inhalt – Idle-Rotation")
 
     mod = _registry.get_module_by_id(media_type)
     if mod is not None:
@@ -238,16 +278,16 @@ def _suggest_next_wake(state: str, media_type: str) -> tuple[int, str]:
             reason = str(info.get("reason", f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")).strip()
             if mod.MODULE_PRIORITY < 10:
                 return seconds, reason
-            return _apply_night_mode_interval(seconds, reason)
+            return _apply_schedule_interval(seconds, reason)
         custom = mod.get_next_wake_seconds(env, state)
         if custom is not None:
             if mod.MODULE_PRIORITY < 10:
                 return max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall"
-            return _apply_night_mode_interval(max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")
+            return _apply_schedule_interval(max(10, int(custom)), f"{mod.MODULE_NAME} bestimmt das Wake-Intervall")
         if mod.MODULE_PRIORITY < 10:
             return cfg.refresh_interval, f"{mod.MODULE_NAME} aktiv – Refresh-Intervall"
 
-    return _apply_night_mode_interval(cfg.idle_module_rotation_seconds, "Idle-Modul – Standard-Rotation")
+    return _apply_schedule_interval(cfg.idle_module_rotation_seconds, "Idle-Modul – Standard-Rotation")
 
 
 # ---------------------------------------------------------------------------
@@ -426,8 +466,9 @@ def _render_if_changed_locked(last_state_key: str | None) -> str | None:
         return state_key
 
     # ── 2a. Dashboard: alle aktiven Idle-Module in einem Bild ─────────────────
+    # Zeitplan: env und cfg tragen die Werte des aktiven Fensters (Inhalte, Layout, Takt)
     enabled_idle, rotation_seconds = _get_effective_idle_modules(env)
-    cfg = get_cfg()
+    env, cfg, _ = _effective_programme(env)
     if enabled_idle and cfg.idle_layout == "dashboard":
         from app.dashboard import compose_dashboard
         try:
@@ -556,11 +597,11 @@ def _get_background_poll_seconds() -> int:
     if _is_priority_media_type(_esp32_state.get("media_type", "")):
         return base_poll
 
-    night_state = _get_night_mode_state()
-    if not night_state["active"]:
-        return base_poll
-
-    return min(base_poll, max(1, int(night_state["seconds_until_end"])))
+    # Zeitplan: an der nächsten Fenstergrenze (Ende oder Beginn) pünktlich neu rendern
+    until = int(_get_schedule_state().get("seconds_until_change", 0) or 0)
+    if until > 0:
+        return min(base_poll, max(1, until))
+    return base_poll
 
 
 # ---------------------------------------------------------------------------
@@ -810,7 +851,7 @@ def render_module_preview(module_id: str, theme: str | None = None, device: bool
             env = get_settings_values()
             if module_id == "dashboard":
                 from app.dashboard import compose_dashboard
-                cfg = get_cfg()
+                env, cfg, _ = _effective_programme(env)
                 enabled_idle = [m for m in _registry.get_idle_modules() if m.is_enabled(env)]
                 result = compose_dashboard(env, cfg, _dashboard_modules(enabled_idle, cfg))
                 if result is None:
@@ -1175,7 +1216,7 @@ def api_display_get():
 
 @app.route("/api/display", methods=["PUT", "POST"])
 def api_display_put():
-    from app.display_api import display_updates_and_notices, map_errors_to_fields
+    from app.display_api import display_updates_and_notices, map_errors_to_fields, schedule_errors
     payload = request.get_json(silent=True) or {}
     updates, notices = display_updates_and_notices(payload)
     if not updates:
@@ -1184,6 +1225,7 @@ def api_display_put():
     sections = _build_settings_sections()
     all_fields = _all_fields_from_sections(sections)
     errors = _validate_all_settings(updates, all_fields)
+    errors.extend(schedule_errors(payload, updates.get("IDLE_LAYOUT", get_cfg().idle_layout)))
     # Zusätzliche Anzeige-Regel: Dashboard-Kacheln müssen Kacheln liefern können
     cfg_layout = updates.get("IDLE_LAYOUT", get_cfg().idle_layout)
     if cfg_layout == "dashboard":
@@ -1365,13 +1407,14 @@ def log_startup_config() -> None:
     log.info(f"REFRESH_INTERVAL     = {cfg.refresh_interval}s")
     log.info(f"IDLE_MODULES         = {', '.join(cfg.idle_module_ids) or 'keine'}")
     log.info(f"IDLE_ROTATION        = {cfg.idle_module_rotation_seconds}s")
-    log.info(
-        "NIGHT_MODE           = %s",
-        (
-            f"{cfg.night_mode_start}-{cfg.night_mode_end} / {cfg.night_mode_interval_minutes}min / {cfg.night_mode_idle_behavior}"
-            if cfg.night_mode_enabled else "deaktiviert"
-        ),
-    )
+    from app.schedule import describe_window, effective_windows
+    windows = effective_windows(cfg)
+    if windows:
+        source = "Zeitplan" if cfg.schedule_windows else "alter Nachtmodus"
+        for w in windows:
+            log.info(f"ZEITPLAN ({source})   = {w.name}: {describe_window(w)}")
+    else:
+        log.info("ZEITPLAN             = keine Zeitfenster, das Programm gilt rund um die Uhr")
     # Modul-Status generisch: jedes Modul beschreibt sich selbst
     env = get_settings_values()
     for mod in _registry.get_modules():

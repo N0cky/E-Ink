@@ -33,6 +33,7 @@ Supported output modes:
 - **Tagesschau news** – current news cards with thumbnail and teaser text
 - **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours and icons included, with a `{year}` placeholder so the URL never needs a yearly update; reminder banner in the evening before collection (the module then jumps ahead in the rotation), week strip or list for the coming days, one column per address if you like, and the last good calendar is kept when the municipality's server is down
 - **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events; the last good calendar is kept on disk and shown with "Stand vom …" when a source is down, and "Verbindung prüfen" lists the next appointments per calendar
+- **Schedule** – time windows per weekday with their own contents, layout and refresh interval: weather and garbage in the morning, the dashboard during the day, the calendar in the evening, everything slower at night. Outside the windows the normal programme applies
 - **Render history** – the last 24 images the display received, as a strip under the live image on the *Anzeige* page; click one to see what the display showed at 7:30
 - **Dashboard mode** – instead of rotating full-screen modules, stack several of them as tiles in one image (`IDLE_LAYOUT=dashboard`): weather on top, calendar in the middle, garbage or news below. Fewer display refreshes, more information per glance
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
@@ -261,7 +262,8 @@ Recommended setup for all environments:
 | `IDLE_LAYOUT` | `rotation` (one module per image, in turns) or `dashboard` (several modules stacked as tiles in one image) | `rotation` |
 | `DASHBOARD_TILES` | Tile order and heights for the dashboard, e.g. `dwd_weather:45, calendar:30, garbage:25`. Modules without a percentage share the rest. Empty: all active idle modules with equal height | `` |
 | `IDLE_MODULE_ROTATION_SECONDS` | Rotation interval between idle modules | `120` |
-| `NIGHT_MODE_ENABLED` | Enable reduced refreshes during a local night window | `false` |
+| `SCHEDULE_WINDOWS` | Schedule: time windows with their own contents, layout and interval, `Name\|days\|HH:MM-HH:MM\|layout\|seconds\|contents`, several separated by `;` (e.g. `Morgens\|Mo-Fr\|06:00-09:00\|rotation\|120\|dwd_weather,garbage; Nachts\|*\|23:00-07:00\|\|900\|`). Empty parts inherit from the programme; the first matching window wins; managed on the *Anzeige* page | `` |
+| `NIGHT_MODE_ENABLED` | Legacy night mode, honoured only while `SCHEDULE_WINDOWS` is empty (the UI converts it into a window on save) | `false` |
 | `NIGHT_MODE_START` | Local start time for night mode (`HH:MM`) | `23:00` |
 | `NIGHT_MODE_END` | Local end time for night mode (`HH:MM`) | `07:00` |
 | `NIGHT_MODE_INTERVAL_MINUTES` | Idle refresh interval during night mode | `15` |
