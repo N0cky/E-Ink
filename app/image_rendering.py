@@ -187,6 +187,21 @@ def create_flat_cover_canvas(
     return canvas, cy + ch
 
 
+def prepare_photo_for_eink(img: Image.Image) -> Image.Image:
+    """
+    Foto für das 6-Farben-Panel aufbereiten: Kontrast strecken, Farben kräftiger,
+    Mitteltöne leicht anheben. Spectra 6 macht aus dunklen, flauen Fotos nur
+    Dithering-Matsch; ein knackiges Foto bleibt erkennbar.
+    """
+    from PIL import ImageEnhance, ImageOps
+    rgb = img.convert("RGB")
+    rgb = ImageOps.autocontrast(rgb, cutoff=2)
+    rgb = ImageEnhance.Color(rgb).enhance(1.35)
+    rgb = ImageEnhance.Brightness(rgb).enhance(1.08)
+    rgb = ImageEnhance.Contrast(rgb).enhance(1.15)
+    return rgb
+
+
 def create_rounded_thumbnail(img: Image.Image, target_w: int, target_h: int, radius: int = 18) -> Image.Image:
     thumb = fit_crop(img, target_w, target_h).convert("RGBA")
     thumb = Image.blend(thumb, thumb.convert("L").convert("RGBA"), alpha=0.45)

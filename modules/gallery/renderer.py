@@ -129,6 +129,9 @@ def _draw_overlay(base: Image.Image, services: ModuleRenderServices, caption: st
 def render_gallery_image(services: ModuleRenderServices, content: dict, fit_mode: str, overlay_mode: str) -> Image.Image:
     with Image.open(content["image_path"]) as src:
         img = ImageOps.exif_transpose(src).convert("RGB")
+    if services.display_theme == "eink":
+        from app.image_rendering import prepare_photo_for_eink
+        img = prepare_photo_for_eink(img)
 
     if fit_mode == "cover":
         base = fit_crop(img, services.render_width, services.render_height)

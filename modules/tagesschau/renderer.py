@@ -321,9 +321,11 @@ def draw_tagesschau_card(
         image_box_h = min(max(118, inner_height - 4), inner_height)
         image_box_w = min(236, max(192, int(inner_width * 0.3)))
         if flat:
-            # E-Ink: Foto unverändert (kein Entsättigen/Abdunkeln), eckig – das Dithering
-            # macht aus einem satten Foto ein lesbares Bild, aus einem grauen nur Matsch
-            thumb = fit_crop(image, image_box_w, image_box_h).convert("RGBA")
+            # E-Ink: Foto nicht entsättigen/abdunkeln, sondern Kontrast und Farben anheben,
+            # eckig – das Dithering macht aus einem satten Foto ein lesbares Bild, aus
+            # einem grauen nur Matsch (auf dem Panel geprüft)
+            from app.image_rendering import prepare_photo_for_eink
+            thumb = prepare_photo_for_eink(fit_crop(image, image_box_w, image_box_h)).convert("RGBA")
         else:
             thumb = create_thumbnail(image, image_box_w, image_box_h, 18)
         draw_card_thumbnail(img, inner_x, inner_y, image_box_w, image_box_h, thumb,

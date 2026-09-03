@@ -271,7 +271,9 @@ _DWD_EINK: dict = {
     "moon_arrow":          _spectra("black"),
     "moon_label":          _spectra("black"),
     "moon_value":          _spectra("black"),
-    "moon_disc_lit":       _spectra("white"),
+    # Weiß auf weißem Grund sah auf dem Panel wie ein leerer Kreis aus – die
+    # beleuchtete Seite ist deshalb gelb, die Schattenseite schwarz.
+    "moon_disc_lit":       _spectra("yellow"),
     "moon_disc_dark":      _spectra("black"),
     "moon_disc_border":    _spectra("black"),
     "moon_disc_label":     _spectra("black"),
@@ -674,8 +676,8 @@ def draw_moon_disc(img: Image.Image, cx: int, cy: int, r: int,
         term_box = [ox - ea, pad, ox + ea, size - pad - 1]
         md.ellipse(term_box, fill=DARK if a > 0 else LIT)
 
-    # 4. Rand
-    md.ellipse(box, outline=BORDER, width=1)
+    # 4. Rand (auf E-Ink etwas kräftiger, sonst geht er im Dithering unter)
+    md.ellipse(box, outline=BORDER, width=max(1, r // 14) if pal.get("flat") else 1)
 
     # 5. Auf Hauptbild compositen
     img.alpha_composite(moon, dest=(cx - ox, cy - ox))

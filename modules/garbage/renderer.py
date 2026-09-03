@@ -122,6 +122,10 @@ def draw_bin(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, h: int, color: t
     outline = pal["bin_outline"]
     ow = max(2, w // 22) if flat else max(1, w // 40)
     fill = (*color[:3], 255)
+    # E-Ink: Spectra-Grün wirkt auf dem Panel fast schwarz. Damit Restmüll und Bio
+    # unterscheidbar bleiben, ist die schwarze Tonne hohl (weißer Korpus, schwarzer Deckel).
+    hollow = flat and tuple(color[:3]) == tuple(SPECTRA6_COLORS["black"])
+    body_fill = pal["card_fill"] if hollow else fill
 
     lid_h = max(4, int(h * 0.11))
     body_top = y + lid_h
@@ -136,8 +140,8 @@ def draw_bin(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, h: int, color: t
     draw.rectangle([(x + (w - handle_w) // 2, y - max(2, lid_h // 3)), (x + (w + handle_w) // 2, y)],
                    fill=fill, outline=outline, width=ow)
     draw.rounded_rectangle([(body_left, body_top), (body_right, body_bottom)],
-                           radius=0 if flat else max(4, w // 12), fill=fill, outline=outline, width=ow)
-    groove = pal["card_fill"] if flat else (*pal["bg"][:3], 110)
+                           radius=0 if flat else max(4, w // 12), fill=body_fill, outline=outline, width=ow)
+    groove = (pal["text"] if hollow else pal["card_fill"]) if flat else (*pal["bg"][:3], 110)
     for i in (1, 2):
         gx = body_left + int((body_right - body_left) * i / 3)
         draw.line([(gx, body_top + int(h * 0.12)), (gx, body_bottom - int(h * 0.08))], fill=groove, width=max(2, ow))
