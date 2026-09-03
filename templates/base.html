@@ -4,8 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PlexImageE-Ink{% endblock %}</title>
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-    <link rel="icon" type="image/png" href="{{ url_for('favicon_png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
     <script>
         (function () {
             var t = localStorage.getItem('plexeink-ui-theme') || 'dark';
@@ -341,7 +342,7 @@
 <div class="page-shell">
     <header class="topbar">
         <div class="topbar-left">
-            <img class="logo-icon" src="{{ url_for('logo_png') }}" alt="PlexImageE-Ink logo">
+            <img class="logo-icon" src="{{ url_for('static', filename='logo.svg') }}" alt="PlexImageE-Ink logo">
             <span class="logo-name">PlexImage<span class="logo-dot">E-Ink</span></span>
             <span class="logo-sub">{% block page_subtitle %}{% endblock %}</span>
         </div>

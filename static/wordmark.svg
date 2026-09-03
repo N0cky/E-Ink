@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2200 512">
+  <g>
+  <rect x="24" y="24" width="464" height="464" rx="72" fill="#e8e8e8" stroke="#191e21" stroke-width="28"/>
+  <rect x="88" y="88" width="336" height="150" rx="22" fill="#2157ba"/>
+  <rect x="88" y="262" width="150" height="162" rx="22" fill="#efde44"/>
+  <rect x="262" y="262" width="162" height="72" rx="18" fill="#b21318"/>
+  <rect x="262" y="352" width="162" height="72" rx="18" fill="#125f20"/>
+</g>
+  <text x="580" y="322" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="200" fill="#191e21">PlexImage<tspan fill="#2157ba">E-Ink</tspan></text>
+</svg>
