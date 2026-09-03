@@ -1,16 +1,58 @@
 from __future__ import annotations
 
+import os
 import random
 import time
 from pathlib import Path
 
 from app.config import get_cfg, get_int_setting, get_setting
+from app.logger import get_logger
+
+log = get_logger(__name__)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 SCAN_CACHE_SECONDS = 60
 
+# Freigegebene Wurzelordner (Prozess-Umgebung, nicht über die Oberfläche änderbar).
+# Gesetzt → Bildordner müssen darunter liegen; leer → keine Einschränkung (Heimnetz).
+GALLERY_ROOTS_ENV = "PLEXINK_GALLERY_ROOTS"
+
 _scan_cache: dict[tuple[tuple[str, ...], bool], tuple[float, list[Path]]] = {}
 _recent_choice_cache: dict[tuple[int, int, int], int] = {}
+_warned_paths: set[str] = set()
+
+
+def allowed_gallery_roots() -> tuple[Path, ...]:
+    """Wurzelordner aus PLEXINK_GALLERY_ROOTS (Semikolon oder Zeilenumbruch, unter Linux auch Doppelpunkt)."""
+    raw = os.environ.get(GALLERY_ROOTS_ENV, "").strip()
+    if os.name != "nt":
+        raw = raw.replace(":", ";")
+    roots: list[Path] = []
+    for chunk in raw.replace("\n", ";").split(";"):
+        chunk = chunk.strip().strip('"')
+        if chunk:
+            roots.append(Path(chunk).expanduser())
+    return tuple(roots)
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path.absolute()
+
+
+def is_path_allowed(path: Path, roots: tuple[Path, ...] | None = None) -> bool:
+    """True, wenn keine Wurzeln gesetzt sind oder der (aufgelöste) Pfad unter einer Wurzel liegt."""
+    roots = allowed_gallery_roots() if roots is None else roots
+    if not roots:
+        return True
+    target = _resolved(path)
+    for root in roots:
+        base = _resolved(root)
+        if target == base or target.is_relative_to(base):
+            return True
+    return False
 
 
 def parse_gallery_paths(raw_value: str) -> tuple[Path, ...]:
@@ -32,13 +74,22 @@ def list_gallery_images(paths: tuple[Path, ...], recursive: bool) -> list[Path]:
     if cached and cached[0] > now:
         return list(cached[1])
 
+    roots = allowed_gallery_roots()
     images: list[Path] = []
     for base in paths:
         if not base.exists() or not base.is_dir():
             continue
+        if not is_path_allowed(base, roots):
+            if str(base) not in _warned_paths:
+                _warned_paths.add(str(base))
+                log.warning(f"Gallery: Ordner {base} liegt außerhalb von {GALLERY_ROOTS_ENV} und wird übersprungen")
+            continue
         iterator = base.rglob("*") if recursive else base.glob("*")
         for path in iterator:
             if path.is_file() and path.suffix.lower() in ALLOWED_EXTENSIONS:
+                # Symlinks, die aus den freigegebenen Wurzeln hinausführen, bleiben draußen
+                if roots and not is_path_allowed(path, roots):
+                    continue
                 images.append(path)
 
     images = sorted(set(images), key=lambda p: str(p).lower())

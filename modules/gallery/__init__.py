@@ -199,13 +199,16 @@ class GalleryModule(PlexInkModule):
         }
 
     def describe_status(self, env: dict[str, str]) -> dict[str, str]:
-        from .data_source import parse_gallery_paths
+        from .data_source import is_path_allowed, parse_gallery_paths
         paths = parse_gallery_paths(env.get("GALLERY_PATHS", ""))
         if not paths:
             return {"state": "missing", "reason": "Bildordner fehlt"}
         missing = [str(p) for p in paths if not (p.exists() and p.is_dir())]
         if missing:
             return {"state": "error", "reason": f"Ordner nicht gefunden: {missing[0]}"}
+        blocked = [str(p) for p in paths if not is_path_allowed(p)]
+        if len(blocked) == len(paths):
+            return {"state": "error", "reason": f"Ordner nicht freigegeben: {blocked[0]}"}
         return {"state": "ready", "reason": ""}
 
     def summarize(self, env: dict[str, str]) -> str:
@@ -256,7 +259,7 @@ class GalleryModule(PlexInkModule):
         return max(30, min(86400, int(raw)))
 
     def validate_settings(self, updates: dict[str, str], env: dict[str, str]) -> list[str]:
-        from .data_source import parse_gallery_paths
+        from .data_source import GALLERY_ROOTS_ENV, allowed_gallery_roots, is_path_allowed, parse_gallery_paths
 
         errors: list[str] = []
         paths = parse_gallery_paths(env.get("GALLERY_PATHS", ""))
@@ -283,11 +286,15 @@ class GalleryModule(PlexInkModule):
             errors.append("Recent-Avoidance: Muss eine ganze Zahl sein.")
         if self.MODULE_ID in idle_modules and not paths:
             errors.append("Bildordner: Bitte mindestens einen lokalen Ordner angeben, wenn Gallery aktiv ist.")
+        roots = allowed_gallery_roots()
         for path in paths:
             if not path.exists():
                 errors.append(f"Bildordner: Pfad nicht gefunden: {path}")
             elif not path.is_dir():
                 errors.append(f"Bildordner: Kein Verzeichnis: {path}")
+            elif not is_path_allowed(path, roots):
+                allowed = ", ".join(str(r) for r in roots)
+                errors.append(f"Bildordner: {path} liegt außerhalb der freigegebenen Ordner ({GALLERY_ROOTS_ENV}: {allowed}).")
 
         return errors
 

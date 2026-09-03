@@ -6,7 +6,7 @@ import time as _time
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from app.config import format_date_long, format_weekday_short
 from app.image_rendering import SPECTRA6_COLORS
@@ -508,8 +508,8 @@ def draw_fa_icon(draw, x, y, icon_name, size, fill):
     draw.text((x, y), glyph, font=font, fill=fill)
 
 
-def draw_humidity_icon(draw, x, y, color, label_font=None):
-    fa = load_fa_font(20)
+def draw_humidity_icon(draw, x, y, color, label_font=None, size: int = 20):
+    fa = load_fa_font(size)
     if fa:
         draw.text((x, y - 1), FA_ICONS["droplet"], font=fa, fill=color)
 
@@ -546,22 +546,25 @@ def apply_glass_panel(
 # Astronomische Ereignisse (Sonnen- / Mondauf- und -untergang)
 # ---------------------------------------------------------------------------
 
-def _draw_astro_arrow(draw, cx, cy, is_rise: bool, color):
+def _draw_astro_arrow(draw, cx, cy, is_rise: bool, color, scale: float = 1.0):
     """Kleiner Pfeil ↑ (Aufgang) oder ↓ (Untergang) neben dem Himmels-Icon."""
+    a = max(2, int(4 * scale))
+    b = max(3, int(6 * scale))
+    w = max(1, int(2 * scale))
     if is_rise:
-        draw.line((cx, cy + 6, cx, cy - 4), fill=color, width=2)
-        draw.line((cx - 4, cy, cx, cy - 4), fill=color, width=2)
-        draw.line((cx + 4, cy, cx, cy - 4), fill=color, width=2)
+        draw.line((cx, cy + b, cx, cy - a), fill=color, width=w)
+        draw.line((cx - a, cy, cx, cy - a), fill=color, width=w)
+        draw.line((cx + a, cy, cx, cy - a), fill=color, width=w)
     else:
-        draw.line((cx, cy - 4, cx, cy + 6), fill=color, width=2)
-        draw.line((cx - 4, cy + 2, cx, cy + 6), fill=color, width=2)
-        draw.line((cx + 4, cy + 2, cx, cy + 6), fill=color, width=2)
+        draw.line((cx, cy - a, cx, cy + b), fill=color, width=w)
+        draw.line((cx - a, cy + 2, cx, cy + b), fill=color, width=w)
+        draw.line((cx + a, cy + 2, cx, cy + b), fill=color, width=w)
 
 
 def draw_astro_event(draw, x: int, y: int,
                      title: str, value: str,
                      is_rise: bool, is_moon: bool,
-                     label_font, value_font, pal: dict):
+                     label_font, value_font, pal: dict, scale: float = 1.0):
     """
     Zeichnet ein Sonnen- oder Mond-Ereignis.
 
@@ -570,6 +573,9 @@ def draw_astro_event(draw, x: int, y: int,
     Der Pfeil ↑/↓ zeigt ob es Auf- oder Untergang ist –
     dadurch brauchen Mondauf- und -untergang kein eigenes Glyph.
     """
+    def px(v: float) -> int:
+        return max(1, int(v * scale))
+
     if is_moon:
         glyph      = FA_ICONS.get("moon", "\uf186")
         icon_color = pal.get("moon_icon",  pal["sun_icon"])
@@ -583,15 +589,15 @@ def draw_astro_event(draw, x: int, y: int,
         lbl_color  = pal["sun_label"]
         val_color  = pal["sun_value"]
 
-    fa = load_fa_font(22)
+    fa = load_fa_font(px(22))
     if fa and glyph:
-        draw.text((x, y + 2), glyph, font=fa, fill=icon_color)
-        _draw_astro_arrow(draw, x + 26, y + 13, is_rise, arr_color)
-        text_x = x + 40
+        draw.text((x, y + px(2)), glyph, font=fa, fill=icon_color)
+        _draw_astro_arrow(draw, x + px(26), y + px(13), is_rise, arr_color, scale)
+        text_x = x + px(40)
     else:
         text_x = x
-    draw.text((text_x, y),      title, font=label_font, fill=lbl_color)
-    draw.text((text_x, y + 22), value, font=value_font,  fill=val_color)
+    draw.text((text_x, y),          title, font=label_font, fill=lbl_color)
+    draw.text((text_x, y + px(22)), value, font=value_font,  fill=val_color)
 
 
 def draw_sun_event(draw, x, y, title, value, icon_name, label_font, value_font, pal: dict):
@@ -688,8 +694,11 @@ def draw_moon_disc(img: Image.Image, cx: int, cy: int, r: int,
 # ---------------------------------------------------------------------------
 
 def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font, pal: dict,
-                    load_font=None):
-    apply_glass_panel(img, bounds, radius=26,
+                    load_font=None, scale: float = 1.0):
+    def px(v: float) -> int:
+        return max(1, int(v * scale))
+
+    apply_glass_panel(img, bounds, radius=px(26),
                       tint=pal["stat_glass_tint"],
                       outline=pal["stat_glass_outline"],
                       blur_radius=14)
@@ -697,28 +706,28 @@ def draw_stat_panel(img, bounds, title, value, icon_name, label_font, value_font
     left, top, _, _ = bounds
 
     if icon_name == "humidity":
-        draw_humidity_icon(draw, left + 18, top + 16, pal["stat_icon"], label_font)
+        draw_humidity_icon(draw, left + px(18), top + px(16), pal["stat_icon"], label_font, size=px(20))
     else:
-        draw_fa_icon(draw, left + 18, top + 18, icon_name, 18, pal["stat_icon"])
-    draw.text((left + 54, top + 16), title, font=label_font, fill=pal["stat_label"])
+        draw_fa_icon(draw, left + px(18), top + px(18), icon_name, px(18), pal["stat_icon"])
+    draw.text((left + px(54), top + px(16)), title, font=label_font, fill=pal["stat_label"])
 
-    value_left = left + 22
-    value_top  = top + 54
-    max_value_width = bounds[2] - value_left - 18
+    value_left = left + px(22)
+    value_top  = top + px(54)
+    max_value_width = bounds[2] - value_left - px(18)
 
     lines = value.split("\n")
     if len(lines) > 1:
         # Zweizeiliger Wert (z. B. Wind + Böen): beide Zeilen mit fester Schriftgröße
-        line_font = load_font(20, True) if load_font else value_font
+        line_font = load_font(px(20), True) if load_font else value_font
         for i, line in enumerate(lines):
-            draw.text((value_left, value_top + i * 26), line,
+            draw.text((value_left, value_top + i * px(26)), line,
                       font=line_font, fill=pal["stat_value"])
     else:
         chosen_font = value_font
         if load_font:
             # Schriftgröße schrittweise verkleinern bis der Text passt
-            start_size = getattr(value_font, "size", 28)
-            for size in range(start_size, 19, -2):
+            start_size = getattr(value_font, "size", px(28))
+            for size in range(start_size, max(9, px(19)), -2):
                 candidate = load_font(size, True)
                 text_bbox = draw.textbbox((0, 0), value, font=candidate)
                 if (text_bbox[2] - text_bbox[0]) <= max_value_width:
@@ -958,8 +967,38 @@ def interpolate_curve(points, segments=14):
     return smoothed
 
 
-def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_font, pal: dict):
-    """Tagesverlauf-Graph mit dynamischer 5°-Temperaturachse links."""
+def _draw_hatched_polygon(img: Image.Image, points, color, spacing: int = 9, width: int = 2) -> None:
+    """
+    Schraffur statt Fläche. Auf dem Spectra-6-Panel wurde aus der blauen
+    Temperaturfläche ein massiver Block; feine 45°-Linien bleiben luftig und
+    dithern nicht, weil nur echte Panelfarben gezeichnet werden.
+    """
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    x0, y0, x1, y1 = int(min(xs)), int(min(ys)), int(max(xs)) + 1, int(max(ys)) + 1
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).polygon([(x - x0, y - y0) for x, y in points], fill=255)
+    hatch = Image.new("L", (w, h), 0)
+    hd = ImageDraw.Draw(hatch)
+    for d in range(-h, w + h, max(3, spacing)):
+        hd.line((d, h, d + h, 0), fill=255, width=max(1, width))
+    layer = Image.new("RGBA", (w, h), (*color[:3], 255))
+    layer.putalpha(ImageChops.multiply(mask, hatch))
+    img.alpha_composite(layer, dest=(x0, y0))
+
+
+def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_font, pal: dict,
+                      img: Image.Image | None = None, scale: float = 1.0):
+    """
+    Tagesverlauf-Graph mit dynamischer 5°-Temperaturachse links.
+    img: für die Schraffur im flachen (E-Ink-)Theme; ohne img wird die Fläche gefüllt.
+    """
+    def px(v: float) -> int:
+        return max(1, int(v * scale))
+
     left, top, right, bottom = bounds
 
     max_day_offset = max((int(p.get("day_offset", 1 if p.get("is_next_day") else 0)) for p in (hourly_points or [])), default=0)
@@ -974,21 +1013,21 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
     draw.text((left, top), title_text, font=title_font, fill=pal["chart_title"])
 
     if not hourly_points:
-        draw.text((left, top + 36), "Keine Stundenwerte verfügbar",
+        draw.text((left, top + px(36)), "Keine Stundenwerte verfügbar",
                   font=time_font, fill=pal["chart_nodata"])
         return
 
-    AXIS_W = 38          # Breite für Temperaturskala links
+    AXIS_W = px(38)          # Breite für Temperaturskala links
 
-    icon_row_y     = top + 38
-    temp_row_y     = top + 76
-    chart_y_top    = temp_row_y + 30
-    chart_y_bottom = bottom - 30
-    time_row_y     = bottom - 24
+    icon_row_y     = top + px(38)
+    temp_row_y     = top + px(76)
+    chart_y_top    = temp_row_y + px(30)
+    chart_y_bottom = bottom - px(30)
+    time_row_y     = bottom - px(24)
     chart_left     = left + AXIS_W    # Datenfläche beginnt rechts der Skala
 
     chart_height = chart_y_bottom - chart_y_top
-    if chart_height < 30:
+    if chart_height < px(30):
         return
 
     temps = [p.get("temp_c") for p in hourly_points if p.get("temp_c") is not None]
@@ -1009,11 +1048,11 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
     # Datenpunkt-Koordinaten relativ zur gerundeten Achse
     points = []
     for i, point in enumerate(hourly_points):
-        px   = chart_left + i * step_x
+        px_x = chart_left + i * step_x
         temp = point.get("temp_c") if point.get("temp_c") is not None else float(axis_min)
         norm = (temp - axis_min) / spread
         py   = chart_y_bottom - norm * chart_height
-        points.append((px, py))
+        points.append((px_x, py))
 
     # Gitternetz-Linien und Temperaturachse in 5°-Schritten
     ticks = list(range(axis_min, axis_max + 1, 5))
@@ -1023,12 +1062,12 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
         if not (chart_y_top - 2 <= gy <= chart_y_bottom + 2):
             continue
         line_col = pal["baseline"] if tick == axis_min else pal["grid"]
-        draw.line((chart_left, gy, right - 4, gy), fill=line_col, width=1)
+        draw.line((chart_left, gy, right - px(4), gy), fill=line_col, width=1)
         lbl    = f"{tick}°"
         bb     = draw.textbbox((0, 0), lbl, font=time_font)
         lbl_h  = bb[3] - bb[1]
         lbl_w  = bb[2] - bb[0]
-        draw.text((left + AXIS_W - lbl_w - 4, gy - lbl_h // 2),
+        draw.text((left + AXIS_W - lbl_w - px(4), gy - lbl_h // 2),
                   lbl, font=time_font, fill=pal["axis_label"])
 
     # Trennlinien bei Tageswechseln (gestrichelt)
@@ -1050,26 +1089,30 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
             continue
         sep_x = int(chart_left + (boundary_idx - 0.5) * step_x)
         dash_y = icon_row_y
-        while dash_y < time_row_y + 8:
-            draw.line((sep_x, dash_y, sep_x, min(dash_y + 7, time_row_y + 8)),
+        while dash_y < time_row_y + px(8):
+            draw.line((sep_x, dash_y, sep_x, min(dash_y + px(7), time_row_y + px(8))),
                       fill=sep_color, width=1)
-            dash_y += 12
+            dash_y += px(12)
         lbl = transition_labels.get(day_boundary, f"+{day_boundary}d")
         lbl_bb = draw.textbbox((0, 0), lbl, font=time_font)
         lbl_w = lbl_bb[2] - lbl_bb[0]
-        draw.text((sep_x - lbl_w // 2, icon_row_y - 16),
+        draw.text((sep_x - lbl_w // 2, icon_row_y - px(16)),
                   lbl, font=time_font, fill=pal["axis_label"])
 
-    # Kurve
+    # Kurve – flach (E-Ink) als Schraffur, sonst als Fläche
     curve_points = interpolate_curve(points)
     if len(curve_points) > 1:
         fill_pts = [(curve_points[0][0], chart_y_bottom)] + curve_points + [(curve_points[-1][0], chart_y_bottom)]
-        draw.polygon(fill_pts, fill=pal["curve_fill"])
-        draw.line(curve_points, fill=pal["curve_line"], width=4)
+        if pal.get("flat") and img is not None:
+            _draw_hatched_polygon(img, fill_pts, pal["curve_fill"], spacing=max(6, px(9)), width=max(1, px(2)))
+        else:
+            draw.polygon(fill_pts, fill=pal["curve_fill"])
+        draw.line(curve_points, fill=pal["curve_line"], width=max(2, px(4)))
 
     # Datenpunkte und Beschriftung
+    r_outer, r_inner = max(2, px(5)), max(1, px(3))
     for i, point in enumerate(hourly_points):
-        px, py = points[i]
+        px_x, py = points[i]
         day_offset = int(point.get("day_offset", 1 if point.get("is_next_day") else 0))
         # Flat-Themes (E-Ink): keine Transparenz, sonst dithert es
         if pal.get("flat"):
@@ -1082,63 +1125,79 @@ def draw_hourly_strip(draw, bounds, hourly_points, title_font, time_font, temp_f
         temp_fill  = (*pal["hourly_temp"][:3], alpha) if alpha is not None else pal["hourly_temp"]
         time_fill  = (*pal["hourly_time"][:3], alpha) if alpha is not None else pal["hourly_time"]
 
-        draw.ellipse((px - 5, py - 5, px + 5, py + 5), fill=outer_fill)
-        draw.ellipse((px - 3, py - 3, px + 3, py + 3), fill=inner_fill)
+        draw.ellipse((px_x - r_outer, py - r_outer, px_x + r_outer, py + r_outer), fill=outer_fill)
+        draw.ellipse((px_x - r_inner, py - r_inner, px_x + r_inner, py + r_inner), fill=inner_fill)
 
-        draw_weather_icon(draw, int(px - 10), int(icon_row_y), point.get("icon_code"),
-                          18, icon_fill, temp_hint_c=point.get("temp_c"))
+        draw_weather_icon(draw, int(px_x - px(10)), int(icon_row_y), point.get("icon_code"),
+                          px(18), icon_fill, temp_hint_c=point.get("temp_c"))
 
         temp_text = format_temp(point.get("temp_c"))
         t_bbox = draw.textbbox((0, 0), temp_text, font=temp_font)
         t_w    = t_bbox[2] - t_bbox[0]
-        draw.text((px - t_w / 2, temp_row_y), temp_text, font=temp_font, fill=temp_fill)
+        draw.text((px_x - t_w / 2, temp_row_y), temp_text, font=temp_font, fill=temp_fill)
 
         time_text = point.get("time", "--:--")
         ti_bbox = draw.textbbox((0, 0), time_text, font=time_font)
         ti_w    = ti_bbox[2] - ti_bbox[0]
-        draw.text((px - ti_w / 2, time_row_y), time_text, font=time_font, fill=time_fill)
+        draw.text((px_x - ti_w / 2, time_row_y), time_text, font=time_font, fill=time_fill)
 
 
 # ---------------------------------------------------------------------------
 # Kompakter Prognose-Streifen
 # ---------------------------------------------------------------------------
 
-def draw_compact_forecast_strip(img, bounds, forecast_days, day_font, temp_font, meta_font, pal: dict):
+def draw_compact_forecast_strip(img, bounds, forecast_days, day_font, temp_font, meta_font, pal: dict,
+                                scale: float = 1.0):
     """Mehrtages-Vorschau-Streifen mit Palette. Zeigt UV-Index wenn vorhanden."""
     from .dwd_uv import uv_level_color, uv_level_label
 
     if not forecast_days:
         return
 
+    def px(v: float) -> int:
+        return max(1, int(v * scale))
+
     left, top, right, bottom = bounds
     h = bottom - top
     count = len(forecast_days)
-    gap = 10
+    gap = px(10)
     card_w = int((right - left - gap * (count - 1)) / count)
 
-    # Prüfen ob UV-Daten vorhanden sind (mind. ein Tag mit Wert)
+    # ── Zeilen von unten aufbauen: so viele Meta-Zeilen, wie unter der Temperatur Platz ist ──
+    ROW_H      = px(22)   # Zeilenhöhe (Icon 16 px + 6 px Luft)
+    BOTTOM_PAD = px(10)   # Abstand Unterkante Karte
+    DAY_LABEL_BOTTOM = top + px(30)   # Label (19 px) + 8 px oben + Luft
+    TEMP_H = px(24)
+
     has_uv = any(day.get("uvi_max") is not None for day in forecast_days)
-    show_uv = has_uv and h >= 106
 
-    # ── Zeilenpositionen von unten aufbauen ───────────────────────────────────
-    ROW_H      = 22   # Zeilenhöhe (Icon 16 px + 6 px Luft)
-    BOTTOM_PAD = 10   # Abstand Unterkante Karte
+    def fits(rows: int) -> bool:
+        return DAY_LABEL_BOTTOM + TEMP_H + rows * ROW_H + BOTTOM_PAD <= bottom
 
-    if show_uv:
-        uv_y   = bottom - BOTTOM_PAD - ROW_H
-        wind_y = uv_y   - ROW_H
-        sun_y  = wind_y - ROW_H
+    if has_uv and fits(3):
+        meta_rows, show_uv = 3, True
+    elif fits(2):
+        meta_rows, show_uv = 2, False
     else:
-        uv_y   = None
-        wind_y = bottom - BOTTOM_PAD - ROW_H
-        sun_y  = wind_y - ROW_H
+        meta_rows, show_uv = 0, False       # nur Tag und Temperatur – lieber weniger als überlappend
 
-    meta_top = sun_y   # Oberkante des Meta-Bereichs
+    uv_y = wind_y = sun_y = None
+    if meta_rows:
+        cursor = bottom - BOTTOM_PAD
+        if show_uv:
+            cursor -= ROW_H
+            uv_y = cursor
+        cursor -= ROW_H
+        wind_y = cursor
+        cursor -= ROW_H
+        sun_y = cursor
+        meta_top = sun_y
+    else:
+        meta_top = bottom - BOTTOM_PAD
 
     # Temperatur vertikal zwischen Tag-Label-Bereich und Meta-Bereich zentrieren
-    DAY_LABEL_BOTTOM = top + 32   # ca. Label (19 px) + 10 px oben + Luft
-    avail_for_temp   = meta_top - DAY_LABEL_BOTTOM - 4
-    temp_y = DAY_LABEL_BOTTOM + max(0, (avail_for_temp - 24) // 2)
+    avail_for_temp = meta_top - DAY_LABEL_BOTTOM
+    temp_y = DAY_LABEL_BOTTOM + max(0, (avail_for_temp - TEMP_H) // 2)
 
     for idx, day in enumerate(forecast_days):
         card_left  = left + idx * (card_w + gap)
@@ -1146,33 +1205,33 @@ def draw_compact_forecast_strip(img, bounds, forecast_days, day_font, temp_font,
         apply_glass_panel(
             img,
             (card_left, top, card_right, bottom),
-            radius=18,
+            radius=px(18),
             tint=pal["fc_glass_tint"],
             outline=pal["fc_glass_outline"],
             blur_radius=10,
         )
         draw = ImageDraw.Draw(img, "RGBA")
-        pad = 12
+        pad = px(12)
 
-        draw_weather_icon(draw, card_right - 38, top + 8, day.get("icon_code"),
-                          24, pal["fc_icon"], temp_hint_c=day.get("max_temp_c"))
+        draw_weather_icon(draw, card_right - px(38), top + px(8), day.get("icon_code"),
+                          px(24), pal["fc_icon"], temp_hint_c=day.get("max_temp_c"))
 
-        draw.text((card_left + pad, top + 10), format_day_label(day.get("day_date", "")),
+        draw.text((card_left + pad, top + px(10)), format_day_label(day.get("day_date", "")),
                   font=day_font, fill=pal["fc_day"])
 
         temp_text = f"{format_temp(day.get('max_temp_c'))} / {format_temp(day.get('min_temp_c'))}"
         draw.text((card_left + pad, temp_y), temp_text,
                   font=temp_font, fill=pal["fc_temp"])
 
-        if h >= 90:
+        if meta_rows:
             sun_text  = day.get("sunshine_text") or "--"
             wind_kmh  = day.get("wind_kmh")
             wind_dir  = day.get("wind_dir_label") or ""
             wind_text = f"{wind_kmh} km/h {wind_dir}" if wind_kmh is not None else "--"
             uvi       = day.get("uvi_max")
 
-            fa     = load_fa_font(16)   # Icons etwas größer als bisher (13 → 16)
-            ICON_W = 20                 # Platz den das Icon horizontal belegt
+            fa     = load_fa_font(px(16))   # Icons etwas größer als bisher (13 → 16)
+            ICON_W = px(20)                 # Platz den das Icon horizontal belegt
 
             # Sonne (Scheindauer)
             if fa:
@@ -1560,10 +1619,19 @@ def draw_pollen_strip(img: Image.Image, bounds: tuple,
 # ---------------------------------------------------------------------------
 
 def render_dwd_weather_module(context: ModuleRenderServices, content: object) -> Image.Image:
+    """
+    Vollbild. Entworfen für 1200×1600; kleinere Bilder (600×800, 800×480)
+    skalieren Maße und Schriften mit s = min(1, Breite/1200, Höhe/1200),
+    größere behalten die Originalgröße und bekommen mehr Luft.
+    """
     data = content if isinstance(content, dict) else {}
     rw, rh = context.render_width, context.render_height
     theme = getattr(context, "display_theme", "dark")
     pal = get_dwd_palette(theme)
+    s = max(0.35, min(1.0, rw / 1200.0, rh / 1200.0))
+
+    def px(v: float) -> int:
+        return max(1, int(round(v * s)))
 
     # Hintergrund
     if pal.get("flat"):
@@ -1575,49 +1643,50 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     draw = ImageDraw.Draw(img, "RGBA")
 
     # Schriften
-    font_idle          = context.load_font(32, False)
-    font_eyebrow       = context.load_font(28, True)
-    font_big           = context.load_font(88, True)
-    font_condition     = context.load_font(34, True)
-    font_value         = context.load_font(28, True)
-    font_label         = context.load_font(21, True)
+    font_idle          = context.load_font(px(32), False)
+    font_eyebrow       = context.load_font(px(28), True)
+    font_big           = context.load_font(px(88), True)
+    font_condition     = context.load_font(px(34), True)
+    font_value         = context.load_font(px(28), True)
+    font_label         = context.load_font(px(21), True)
     flat               = bool(pal.get("flat"))
-    font_micro         = context.load_font(18 if flat else 16, False)
-    font_warning_title = context.load_font(22, True)
-    font_chart_title   = context.load_font(22, True)
-    font_chart_time    = context.load_font(16 if flat else 13, False)
-    font_chart_temp    = context.load_font(18 if flat else 16, True)
-    font_forecast_day  = context.load_font(20, True)
-    font_forecast_temp = context.load_font(22, True)
-    font_forecast_meta = context.load_font(19, False)
+    font_micro         = context.load_font(px(18 if flat else 16), False)
+    font_warning_title = context.load_font(px(22), True)
+    font_chart_title   = context.load_font(px(22), True)
+    font_chart_time    = context.load_font(px(16 if flat else 13), False)
+    font_chart_temp    = context.load_font(px(18 if flat else 16), True)
+    font_forecast_day  = context.load_font(px(20), True)
+    font_forecast_temp = context.load_font(px(22), True)
+    font_forecast_meta = context.load_font(px(19), False)
 
     # Kopfzeile
-    draw.text((70, 52), format_date_long(),
+    draw.text((px(70), px(52)), format_date_long(),
               font=font_idle, fill=pal["header_idle"])
     station_label = data.get("station_name") or f"DWD-Station {data.get('station_id', '--')}"
-    draw.text((70, 92), f"DWD Wetter  ·  {station_label}",
+    draw.text((px(70), px(92)), f"DWD Wetter  ·  {station_label}",
               font=font_eyebrow, fill=pal["header_station"])
 
     # Haupt-Panel
-    panel_left   = 50
-    panel_right  = rw - 50
-    panel_top    = 134
-    panel_bottom = rh - 18
+    panel_left   = px(50)
+    panel_right  = rw - px(50)
+    panel_top    = px(134)
+    panel_bottom = rh - px(18)
     panel_w      = panel_right - panel_left
+    inset        = px(42)
 
     apply_glass_panel(img, (panel_left, panel_top, panel_right, panel_bottom),
-                      radius=34, tint=pal["panel_tint"], outline=pal["panel_outline"],
+                      radius=px(34), tint=pal["panel_tint"], outline=pal["panel_outline"],
                       blur_radius=0)
     draw = ImageDraw.Draw(img, "RGBA")
 
     # Zone 1: Aktuelles Wetter
-    cur_top   = panel_top + 20
-    cur_left  = panel_left + 42
-    cur_right = panel_right - 42
+    cur_top   = panel_top + px(20)
+    cur_left  = panel_left + inset
+    cur_right = panel_right - inset
 
-    icon_size = 130
-    icon_x = cur_right - icon_size - 10
-    draw_weather_icon(draw, icon_x, cur_top + 8, data.get("current_icon_code"),
+    icon_size = px(130)
+    icon_x = cur_right - icon_size - px(10)
+    draw_weather_icon(draw, icon_x, cur_top + px(8), data.get("current_icon_code"),
                       icon_size, pal["icon_main"],
                       temp_hint_c=data.get("current_temp_c"))
 
@@ -1627,33 +1696,34 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     today_min     = format_temp(today.get("min_temp_c"))
     today_max     = format_temp(today.get("max_temp_c"))
 
-    draw.text((cur_left, cur_top + 10),  current_temp,  font=font_big,       fill=pal["temp_big"])
-    draw.text((cur_left, cur_top + 116), current_label, font=font_condition,  fill=pal["condition"])
+    draw.text((cur_left, cur_top + px(10)),  current_temp,  font=font_big,       fill=pal["temp_big"])
+    draw.text((cur_left, cur_top + px(116)), current_label, font=font_condition,  fill=pal["condition"])
 
     # Heute-Badge (Min/Max)
-    badge_top    = cur_top + 162
-    badge_bottom = badge_top + 42
+    badge_top    = cur_top + px(162)
+    badge_bottom = badge_top + px(42)
+    badge_w      = px(290)
     draw.rounded_rectangle(
-        (cur_left, badge_top, cur_left + 290, badge_bottom),
-        radius=20, fill=pal["badge_fill"], outline=pal["badge_outline"], width=1,
+        (cur_left, badge_top, cur_left + badge_w, badge_bottom),
+        radius=px(20), fill=pal["badge_fill"], outline=pal["badge_outline"], width=1,
     )
-    draw.text((cur_left + 18, badge_top + 10),
+    draw.text((cur_left + px(18), badge_top + px(10)),
               f"Heute  {today_min} – {today_max}", font=font_value, fill=pal["badge_text"])
 
     # Mondphase: Scheibe + Label rechts neben dem Badge
     moon_phase = today.get("moonPhase")
     if moon_phase is not None:
-        disc_r  = 14
-        disc_cx = cur_left + 308          # 18 px Abstand nach Badge-Rechtsrand (290)
-        disc_cy = badge_top + 21          # vertikal mittig im Badge
+        disc_r  = px(14)
+        disc_cx = cur_left + badge_w + px(18)     # 18 px Abstand nach Badge-Rechtsrand
+        disc_cy = badge_top + px(21)              # vertikal mittig im Badge
         draw_moon_disc(img, disc_cx, disc_cy, disc_r, moon_phase, pal)
         phase_lbl = moon_phase_label(moon_phase)
-        draw.text((disc_cx + disc_r + 7, badge_top + 11),
+        draw.text((disc_cx + disc_r + px(7), badge_top + px(11)),
                   phase_lbl, font=font_micro, fill=pal["moon_disc_label"])
 
     # Sonne + Mond: 4 Ereignisse gleichmäßig über die verfügbare Breite verteilen
-    astro_y  = cur_top + 214
-    ev_step  = (cur_right - cur_left) // 4   # je ~104 px bei 600 px Breite
+    astro_y  = cur_top + px(214)
+    ev_step  = (cur_right - cur_left) // 4
     astro_events = [
         ("Aufgang",   today.get("sunrise",  "--:--"), True,  False),
         ("Untergang", today.get("sunset",   "--:--"), False, False),
@@ -1663,22 +1733,22 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     for i, (lbl, val, is_rise, is_moon) in enumerate(astro_events):
         draw_astro_event(draw, cur_left + i * ev_step, astro_y,
                          lbl, val, is_rise, is_moon,
-                         font_micro, font_label, pal)
+                         font_micro, font_label, pal, scale=s)
 
-    cur_bottom = cur_top + 268
-    draw.line((panel_left + 42, cur_bottom + 6, panel_right - 42, cur_bottom + 6),
+    cur_bottom = cur_top + px(268)
+    draw.line((cur_left, cur_bottom + px(6), cur_right, cur_bottom + px(6)),
               fill=pal["divider"], width=1)
 
     # Zone 2: Amtliche Warnungen (optional)
     warning_items = data.get("warnings") or []
-    warning_gap = 10
-    warning_h = warning_strip_height(warning_items, panel_right - panel_left - 112, context.load_font)
-    stat_top = cur_bottom + 20
+    warning_gap = px(10)
+    warning_h = warning_strip_height(warning_items, cur_right - cur_left - 28, context.load_font)
+    stat_top = cur_bottom + px(20)
     if warning_h > 0:
         warning_top = stat_top
         draw_warning_strip(
             img,
-            (panel_left + 42, warning_top, panel_right - 42, warning_top + warning_h),
+            (cur_left, warning_top, cur_right, warning_top + warning_h),
             warning_items,
             font_warning_title,
             font_micro,
@@ -1688,9 +1758,9 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
         stat_top = warning_top + warning_h + warning_gap
 
     # Zone 3: Stat-Panels
-    stat_h   = 110
-    stat_gap = 14
-    stat_w   = int((panel_w - 84 - stat_gap * 3) / 4)
+    stat_h   = px(110)
+    stat_gap = px(14)
+    stat_w   = int((cur_right - cur_left - stat_gap * 3) / 4)
 
     wind_text = data.get("current_wind_text", "--")
     wind_dir  = data.get("current_wind_dir_label", "")
@@ -1711,63 +1781,64 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
         ("Luftdruck",    data.get("current_pressure_text",         "--"), "gauge"),
     ]
     for idx, (title, value, icon_name) in enumerate(stat_defs):
-        sx = panel_left + 42 + idx * (stat_w + stat_gap)
+        sx = cur_left + idx * (stat_w + stat_gap)
         draw_stat_panel(img, (sx, stat_top, sx + stat_w, stat_top + stat_h),
                         title, value, icon_name, font_label, font_value, pal,
-                        load_font=context.load_font)
+                        load_font=context.load_font, scale=s)
 
     stat_bottom = stat_top + stat_h
 
     # Zone 4: Pollenleiste (optional – nur wenn Pollen-Region + Allergene konfiguriert)
     pollen_data       = data.get("pollen")
-    font_pollen_title = context.load_font(24, True)
-    font_pollen_label = context.load_font(19, True)
-    font_pollen_small = context.load_font(18, False)
+    font_pollen_title = context.load_font(px(24), True)
+    font_pollen_label = context.load_font(px(19), True)
+    font_pollen_small = context.load_font(px(18), False)
 
-    next_zone_top = stat_bottom + 14
+    next_zone_top = stat_bottom + px(14)
     if pollen_data:
         pollen_allergens = pollen_data.get("allergens", {})
-        pollen_gap = 10
+        pollen_gap = px(10)
         # Höhenbudget: Stundenverlauf (mind. 200) und Tagesvorschau (110) behalten ihren Platz
-        pollen_budget = max(110, (panel_bottom - 14) - next_zone_top - pollen_gap - 200 - 10 - 110)
-        pollen_plan = plan_pollen_layout(pollen_allergens, (panel_right - 42) - (panel_left + 42), pollen_budget)
+        pollen_budget = max(px(110), (panel_bottom - px(14)) - next_zone_top - pollen_gap - px(200) - px(10) - px(110))
+        pollen_plan = plan_pollen_layout(pollen_allergens, cur_right - cur_left, pollen_budget, s)
         pollen_h   = pollen_plan["height"]
         pollen_top = next_zone_top
         draw_pollen_strip(
             img,
-            (panel_left + 42, pollen_top, panel_right - 42, pollen_top + pollen_h),
+            (cur_left, pollen_top, cur_right, pollen_top + pollen_h),
             pollen_data, font_pollen_title, font_pollen_label, font_pollen_small, pal,
-            plan=pollen_plan,
+            plan=pollen_plan, scale=s,
         )
+        draw = ImageDraw.Draw(img, "RGBA")
         zone3_top = pollen_top + pollen_h + pollen_gap
     else:
         zone3_top = next_zone_top
 
     # Zone 5 + 6: Stundenverlauf & Prognose (responsiv)
-    remaining      = (panel_bottom - 14) - zone3_top
-    forecast_h     = max(110, min(140, int(remaining * 0.24)))
-    hourly_alloc   = max(80, remaining - forecast_h - 10)
+    remaining      = (panel_bottom - px(14)) - zone3_top
+    forecast_h     = max(px(110), min(px(140), int(remaining * 0.24)))
+    hourly_alloc   = max(px(80), remaining - forecast_h - px(10))
     hourly_top     = zone3_top
     hourly_bottom  = hourly_top + hourly_alloc
-    forecast_top   = hourly_bottom + 10
-    forecast_bottom = panel_bottom - 14
+    forecast_top   = hourly_bottom + px(10)
+    forecast_bottom = panel_bottom - px(14)
 
     draw_hourly_strip(
         draw,
-        (panel_left + 42, hourly_top, panel_right - 42, hourly_bottom),
+        (cur_left, hourly_top, cur_right, hourly_bottom),
         data.get("hourly_forecast") or [],
         font_chart_title, font_chart_time, font_chart_temp,
-        pal,
+        pal, img=img, scale=s,
     )
 
     forecast_days = data.get("days", [])[:5]
-    if forecast_days and forecast_bottom > forecast_top + 40:
+    if forecast_days and forecast_bottom > forecast_top + px(40):
         draw_compact_forecast_strip(
             img,
-            (panel_left + 42, forecast_top, panel_right - 42, forecast_bottom),
+            (cur_left, forecast_top, cur_right, forecast_bottom),
             forecast_days,
             font_forecast_day, font_forecast_temp, font_forecast_meta,
-            pal,
+            pal, scale=s,
         )
 
     return img.convert("RGB")

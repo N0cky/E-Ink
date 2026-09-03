@@ -181,6 +181,7 @@ For local development, `python app/server.py` remains the simplest path. In Dock
 
 - The web UI has **no authentication by default**. It is meant for a trusted home network.
 - Set `PLEXINK_UI_PASSWORD` as a container environment variable to protect all pages and `/api/*` routes with HTTP Basic Auth (any username, that password). The endpoints the ESP32 needs (`/hash`, `/meta.json`, `/current.png`, `/current.bmp`, `/current.epd`, `/ack`, `/firmware.json`, `/firmware.bin`, `/health`) stay open so the device does not need credentials.
+- The Gallery module reads image folders from the server's file system, and the folder list is editable in the web UI. Set `PLEXINK_GALLERY_ROOTS` (container environment, e.g. `/gallery`; several roots separated by `;`) to restrict gallery folders to those roots: folders outside are rejected on save, skipped when scanning, and symlinks that lead out of the roots are ignored. Unset, any folder is allowed (home network default).
 - Secrets such as the Plex token or the Steam API key are never written into the settings page HTML. The field shows as empty; leaving it empty on save keeps the stored value.
 - Query parameters that carry secrets (`X-Plex-Token`, `key`, `token`, …) are masked in every log line.
 - Values in `config/settings.env` are written quoted when needed and read without variable interpolation. Settings are never exported to the process environment.
@@ -213,6 +214,7 @@ Typical Unraid mapping:
 - Environment:
   - `PLEXINK_CONFIG_FILE=/config/settings.env` (already the image default)
   - `PLEXINK_UI_PASSWORD=...` (optional, protects the web UI with Basic Auth)
+  - `PLEXINK_GALLERY_ROOTS=/gallery` (optional, limits Gallery folders to the mounted photo share)
 - AppData / volumes:
   - `/mnt/user/appdata/pleximagee-ink/config` -> `/config`
   - `/mnt/user/appdata/pleximagee-ink/output` -> `/output`

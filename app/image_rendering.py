@@ -222,16 +222,17 @@ def stamp_render_time(img: Image.Image, theme: str, text: str) -> Image.Image:
 
 def prepare_photo_for_eink(img: Image.Image) -> Image.Image:
     """
-    Foto für das 6-Farben-Panel aufbereiten: Kontrast strecken, Farben kräftiger,
-    Mitteltöne leicht anheben. Spectra 6 macht aus dunklen, flauen Fotos nur
-    Dithering-Matsch; ein knackiges Foto bleibt erkennbar.
+    Foto für das 6-Farben-Panel aufbereiten: Kontrast strecken, Farben kräftiger.
+    Spectra 6 macht aus dunklen, flauen Fotos nur Dithering-Matsch; ein
+    knackiges Foto bleibt erkennbar. Bewusst kein Aufhellen und nur wenig
+    zusätzlicher Kontrast: an echten Porträts (3. Sept 2026) liefen Gesichter
+    sonst in Weiß/Gelb aus, während Kleidung und Kuchen ohnehin sauber wurden.
     """
     from PIL import ImageEnhance, ImageOps
     rgb = img.convert("RGB")
     rgb = ImageOps.autocontrast(rgb, cutoff=2)
     rgb = ImageEnhance.Color(rgb).enhance(1.35)
-    rgb = ImageEnhance.Brightness(rgb).enhance(1.08)
-    rgb = ImageEnhance.Contrast(rgb).enhance(1.15)
+    rgb = ImageEnhance.Contrast(rgb).enhance(1.08)
     return rgb
 
 
