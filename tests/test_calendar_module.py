@@ -6,8 +6,12 @@ BYDAY, EXDATE), Inhaltsaufbau und Rendering.
 
 from __future__ import annotations
 
+import json
+import tempfile
+import time
 import unittest
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -145,6 +149,9 @@ class ContentBuildTest(unittest.TestCase):
 
 class LifecycleTest(unittest.TestCase):
     def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._cache_patch = patch.object(ds, "CACHE_FILE", Path(self._tmp.name) / "calendar_cache.json")
+        self._cache_patch.start()
         ds.clear_cache()
         settings = dict(config.read_env_settings())
         settings.update({"IDLE_MODULES": "calendar",
@@ -154,6 +161,8 @@ class LifecycleTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         ds.clear_cache()
+        self._cache_patch.stop()
+        self._tmp.cleanup()
         config.apply_runtime_config()
 
     def test_fetch_merges_sources_with_colours_and_caches(self) -> None:
@@ -180,6 +189,86 @@ class LifecycleTest(unittest.TestCase):
         errors = calendar.validate_settings({}, {**self.env, "CALENDAR_ICS_URLS": ""})
         self.assertTrue(any("ICS-Adresse" in e for e in errors))
         self.assertEqual(calendar.validate_settings({}, self.env), [])
+
+
+class ResilienceAndProbeTest(LifecycleTest):
+    """Platten-Cache, Fehler je Quelle, Zusammenfassung und Prüfen-Details."""
+
+    @staticmethod
+    def _ok_get(url, **kw):
+        text = _ics(
+            f"UID:{url}-1\r\nDTSTART;TZID=Europe/Berlin:20260910T140000\r\nDTEND;TZID=Europe/Berlin:20260910T150000\r\nSUMMARY:Zahnarzt {url[-5:]}",
+            f"UID:{url}-2\r\nDTSTART;VALUE=DATE:20260912\r\nSUMMARY:Ausflug {url[-5:]}",
+        )
+        return SimpleNamespace(status_code=200, text=text, raise_for_status=lambda: None)
+
+    @staticmethod
+    def _failing_get(url, **kw):
+        if url.endswith("b.ics"):
+            raise RuntimeError("Verbindung abgelehnt")
+        return ResilienceAndProbeTest._ok_get(url)
+
+    def test_last_good_state_survives_restart_and_is_marked_stale(self) -> None:
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._ok_get), \
+             patch.object(ds, "now_local", return_value=NOW):
+            content = calendar.fetch_content(self.env)
+        self.assertEqual(content["stale_since"], "")
+        self.assertEqual([s["count"] for s in content["sources"]], [2, 2])
+        cache_file = ds.CACHE_FILE
+        self.assertTrue(cache_file.exists(), "Stand wird auf Platte gesichert")
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        for entry in raw.values():
+            entry["fetched_at"] = time.time() - 3 * ds.DEFAULT_CACHE_SECONDS
+        cache_file.write_text(json.dumps(raw), encoding="utf-8")
+        ds.clear_cache()      # „Neustart“
+
+        def offline(url, **kw):
+            raise RuntimeError("Kalender-Server offline")
+
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=offline), \
+             patch.object(ds, "now_local", return_value=NOW):
+            content = calendar.fetch_content(self.env)
+        self.assertIsNotNone(content, "alter Stand statt leerer Seite")
+        self.assertTrue(content["stale_since"], "Stand vom … wird gemeldet")
+        self.assertEqual([e["label"] for e in content["source_errors"]], ["Familie", "Arbeit"])
+        titles = [e["summary"] for d in content["days"] for e in d["events"]]
+        self.assertIn("Zahnarzt a.ics", titles)
+        img = render_calendar_module(ModuleRenderServices(render_width=600, render_height=800, display_theme="eink",
+                                                          load_font=config.load_font), content)
+        self.assertEqual(img.size, (600, 800))
+
+    def test_status_reports_error_only_when_nothing_was_ever_loaded(self) -> None:
+        def offline(url, **kw):
+            raise RuntimeError("DNS kaputt")
+
+        self.assertEqual(calendar.describe_status(self.env)["state"], "ready", "vor dem ersten Abruf: bereit")
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=offline), \
+             patch.object(ds, "now_local", return_value=NOW):
+            self.assertIsNone(calendar.fetch_content(self.env))
+        status = calendar.describe_status(self.env)
+        self.assertEqual(status["state"], "error")
+        self.assertIn("DNS kaputt", status["reason"])
+        probe = calendar.probe(self.env)
+        self.assertFalse(probe["ok"])
+        self.assertTrue(any("Familie: Fehler" in d for d in probe["details"]))
+
+    def test_probe_details_and_summary_with_one_failing_source(self) -> None:
+        with patch.object(http_client.HTTP_SESSION, "get", side_effect=self._failing_get), \
+             patch.object(ds, "now_local", return_value=NOW):
+            probe = calendar.probe(self.env)
+            summary = calendar.summarize(self.env)
+        self.assertTrue(probe["ok"], "eine Quelle reicht")
+        self.assertIn("Arbeit nicht erreichbar", probe["message"])
+        details = probe["details"]
+        self.assertEqual(details[0], "Quellen:")
+        self.assertIn("Familie: 2 Termine in den nächsten 7 Tagen", details)
+        self.assertTrue(any(d.startswith("Arbeit: Fehler – Verbindung abgelehnt") for d in details))
+        self.assertIn("Nächste Termine:", details)
+        self.assertTrue(any(d.startswith("heute 14:00 · Zahnarzt a.ics (Familie)") for d in details), details)
+        self.assertTrue(any("Sa 12.09. ganztägig · Ausflug" in d for d in details), details)
+        self.assertIn("Familie, Arbeit", summary)
+        self.assertIn("nächster: heute 14:00 Zahnarzt a.ics", summary)
+        self.assertIn("Arbeit nicht erreichbar", summary)
 
 
 class RenderTest(unittest.TestCase):

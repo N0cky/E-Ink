@@ -1261,6 +1261,9 @@ _POLLEN_BIG_R   = 11   # Radius des Haupt-Farbpunktes
 _POLLEN_SMALL_R = 8    # Radius der Tages-Farbpunkte
 _POLLEN_NAME_W  = 120  # Reservierter Platz für Allergen-Namen (px)
 _POLLEN_DAY_W   = 80   # Reservierter Platz pro Tag-Spalte (px)
+_POLLEN_CHIP_H  = 36   # Höhe eines Chips (kompakte Darstellung)
+_POLLEN_CHIP_GAP = 8   # Abstand zwischen Chips
+_POLLEN_NO_LOAD_GRAY = (148, 155, 165)
 
 
 def _allergen_has_load(days: dict) -> bool:
@@ -1271,163 +1274,285 @@ def _allergen_has_load(days: dict) -> bool:
     )
 
 
-def pollen_strip_height(allergens: dict) -> int:
-    """Berechnet die benötigte Höhe des Pollen-Strips dynamisch."""
+def _peak(days: dict) -> float | None:
+    valid = [v for v in (days.get(k) for k in _POLLEN_DAY_KEYS) if v is not None]
+    return max(valid) if valid else None
+
+
+def _chip_width_estimate(label: str, value_label: str, active: bool, s: float) -> int:
+    """Breite eines Chips ohne Font: Name ~12 px/Zeichen (fett 19), Wert ~10 px/Zeichen (18)."""
+    w = 12 + 20 + 8 + 12 * len(label) + 8 + 10 * len(value_label) + 12
+    if active:
+        w += 6 + 3 * 16
+    return int(w * s)
+
+
+def plan_pollen_layout(allergens: dict, width: int, max_height: int | None = None, scale: float = 1.0) -> dict:
+    """
+    Wählt die Darstellung des Pollen-Strips und liefert die Höhe dazu:
+
+    - "none":  keine Daten → nur Titel und Hinweis
+    - "text":  kein Allergen hat Flug → eine Textzeile
+    - "grid":  Raster mit zwei Spalten, drei Tageswerte je Allergen
+    - "chips": kompakte Chips (Peak der drei Tage), wenn das Raster nicht in
+               max_height passt – z. B. bei vielen Allergenen mit „0-1“ oder
+               auf kleinen Bildern. Das Raster würde sonst Stunden- und
+               Tagesvorschau zusammenquetschen.
+
+    Rückgabe: {"mode", "height", "rows" (nur chips: Liste von Zeilen mit
+    Allergen-Schlüsseln), "dropped" (chips: Allergene ohne Flug, für die kein Platz war)}.
+    """
+    from .dwd_pollen import ALLERGEN_LABELS
+
+    s = max(0.4, scale)
+    head = int((_POLLEN_PAD_TOP + _POLLEN_TITLE_H + _POLLEN_GAP_T) * s)
+    foot = int(_POLLEN_PAD_BOT * s)
+    single_line = head + int(36 * s) + foot
+
     if not allergens:
-        return _POLLEN_PAD_TOP + _POLLEN_TITLE_H + _POLLEN_GAP_T + 36 + _POLLEN_PAD_BOT
+        return {"mode": "none", "height": single_line, "rows": [], "dropped": []}
 
-    active = [d for d in allergens.values() if _allergen_has_load(d)]
-    n_active   = len(active)
-    n_inactive = len(allergens) - n_active
+    active = [a for a, d in allergens.items() if _allergen_has_load(d)]
+    inactive = [a for a in allergens if a not in active]
+    if not active:
+        return {"mode": "text", "height": single_line, "rows": [], "dropped": []}
 
-    if n_active == 0:
-        # Nur Kein-Pollenflug-Text, keine Datengitter
-        return _POLLEN_PAD_TOP + _POLLEN_TITLE_H + _POLLEN_GAP_T + 36 + _POLLEN_PAD_BOT
-
+    n_active = len(active)
     cols = 2 if n_active > 1 else 1
     rows = (n_active + cols - 1) // cols
-    grid_h = rows * _POLLEN_ROW_H + max(0, rows - 1) * _POLLEN_ROW_GAP
-    # Wenn Pollen ohne Flug vorhanden: eine Extra-Zeile für den Hinweis-Text
-    extra = (_POLLEN_ROW_GAP + 30) if n_inactive else 0
-    return _POLLEN_PAD_TOP + _POLLEN_TITLE_H + _POLLEN_GAP_T + grid_h + extra + _POLLEN_PAD_BOT
+    grid_h = int((rows * _POLLEN_ROW_H + max(0, rows - 1) * _POLLEN_ROW_GAP) * s)
+    extra = int((_POLLEN_ROW_GAP + 30) * s) if inactive else 0
+    grid_total = head + grid_h + extra + foot
+    grid_fits_width = width - int(2 * _POLLEN_PAD_H * s) >= cols * int((_POLLEN_BIG_R * 2 + 7 + _POLLEN_NAME_W + 3 * _POLLEN_DAY_W) * s)
+    if (max_height is None or grid_total <= max_height) and grid_fits_width:
+        return {"mode": "grid", "height": grid_total, "rows": [], "dropped": []}
+
+    # Chips: aktive zuerst, dann die ohne Flug – so viele Zeilen, wie hineinpassen
+    usable = width - int(2 * _POLLEN_PAD_H * s)
+    chip_h = int(_POLLEN_CHIP_H * s)
+    chip_gap = int(_POLLEN_CHIP_GAP * s)
+    ordered = [(a, True) for a in active] + [(a, False) for a in inactive]
+    chip_rows: list[list[str]] = []
+    row: list[str] = []
+    row_w = 0
+    for allergen, is_active in ordered:
+        cw = _chip_width_estimate(ALLERGEN_LABELS.get(allergen, allergen), _pollen_load_label(_peak(allergens[allergen])), is_active, s)
+        if row and row_w + chip_gap + cw > usable:
+            chip_rows.append(row)
+            row, row_w = [], 0
+        row.append(allergen)
+        row_w += (chip_gap if row_w else 0) + cw
+    if row:
+        chip_rows.append(row)
+
+    def chips_height(n_rows: int) -> int:
+        return head + n_rows * chip_h + max(0, n_rows - 1) * chip_gap + foot
+
+    dropped: list[str] = []
+    if max_height is not None:
+        # Zeilen von hinten streichen, aber nie eine Zeile mit aktiven Allergenen
+        while len(chip_rows) > 1 and chips_height(len(chip_rows)) > max_height \
+                and all(a in inactive for a in chip_rows[-1]):
+            dropped = chip_rows.pop() + dropped
+    return {"mode": "chips", "height": chips_height(len(chip_rows)), "rows": chip_rows, "dropped": dropped}
+
+
+def pollen_strip_height(allergens: dict, width: int = 1200, max_height: int | None = None, scale: float = 1.0) -> int:
+    """Benötigte Höhe des Pollen-Strips (siehe plan_pollen_layout)."""
+    return plan_pollen_layout(allergens, width, max_height, scale)["height"]
+
+
+def _pollen_dot(draw: ImageDraw.ImageDraw, cx: int, cy: int, r: int, value: float | None, pal: dict, alpha: int = 225) -> None:
+    """
+    Farbpunkt für einen Belastungswert. Flach (E-Ink): „0“ ist ein hohler Kreis
+    – ein weißer Punkt auf weißem Grund wäre unsichtbar, und genau so sah der
+    Strip auf dem Panel bei lauter „0“ und „0-1“ aus wie zusammengefallen.
+    """
+    flat = bool(pal.get("flat"))
+    color = _pollen_load_color(value, flat=flat)
+    box = [(cx - r, cy - r), (cx + r, cy + r)]
+    if flat and (value is None or value == 0.0):
+        draw.ellipse(box, fill=(*SPECTRA6_COLORS["white"], 255), outline=(*SPECTRA6_COLORS["black"], 255), width=2)
+    else:
+        draw.ellipse(box, fill=(*color, alpha))
+
+
+def _pollen_value_color(value: float | None, pal: dict) -> tuple:
+    """Textfarbe eines Tageswerts: flach immer schwarz, sonst die Belastungsfarbe (grau bleibt Label-Farbe)."""
+    if pal.get("flat"):
+        return pal["pollen_label"]
+    color = _pollen_load_color(value)
+    return pal["pollen_label"] if color == _POLLEN_NO_LOAD_GRAY else (*color, 235)
 
 
 def draw_pollen_strip(img: Image.Image, bounds: tuple,
                       pollen_data: dict,
                       title_font, label_font, small_font,
-                      pal: dict) -> None:
+                      pal: dict, plan: dict | None = None, scale: float = 1.0) -> None:
     """
-    Pollenleiste mit Rasterdarstellung (max. 2 Spalten).
+    Pollenleiste. Die Darstellung kommt aus plan_pollen_layout() (Raster mit
+    max. 2 Spalten oder kompakte Chips); ohne plan wird sie aus den Grenzen
+    bestimmt.
 
-    Allergene ohne jeglichen Pollenflug (alle 3 Tage = 0) werden nicht im
-    Raster gezeigt, sondern kompakt als Textzeile aufgelistet.
-    Haben ALLE Allergene keinen Pollenflug, entfällt das Raster ganz.
+    Raster: Allergene ohne jeglichen Pollenflug (alle 3 Tage = 0) werden nicht
+    gezeigt, sondern kompakt als Textzeile aufgelistet. Haben ALLE Allergene
+    keinen Pollenflug, entfällt das Raster ganz.
+    Chips: ein Chip je Allergen mit Peak-Wert und drei kleinen Tagespunkten.
     """
     from .dwd_pollen import ALLERGEN_LABELS
 
     left, top, right, bottom = bounds
     w = right - left
+    s = max(0.4, scale)
 
-    apply_glass_panel(img, bounds, radius=22,
+    def px(v: float) -> int:
+        return max(1, int(v * s))
+
+    allergens: dict = pollen_data.get("allergens", {})
+    if plan is None:
+        plan = plan_pollen_layout(allergens, w, bottom - top, s)
+    mode = plan["mode"]
+
+    apply_glass_panel(img, bounds, radius=px(22),
                       tint=pal["pollen_glass_tint"],
                       outline=pal["pollen_glass_outline"],
                       blur_radius=8)
     draw = ImageDraw.Draw(img, "RGBA")
 
-    allergens: dict = pollen_data.get("allergens", {})
-
-    # Aufteilen in aktive (mind. 1 Tag > 0) und inaktive Allergene
+    pad_h = px(_POLLEN_PAD_H)
     active   = {a: d for a, d in allergens.items() if _allergen_has_load(d)}
     inactive = [ALLERGEN_LABELS.get(a, a) for a in allergens if a not in active]
 
     # ── Titelzeile ────────────────────────────────────────────────────────
-    title_y   = top + _POLLEN_PAD_TOP
-    title_mid = title_y + _POLLEN_TITLE_H // 2
+    title_y   = top + px(_POLLEN_PAD_TOP)
+    title_mid = title_y + px(_POLLEN_TITLE_H) // 2
+    draw.text((left + pad_h, title_y + px(4)), "Pollenflug", font=title_font, fill=pal["pollen_title"])
+    title_w = int(draw.textlength("Pollenflug", font=title_font))
 
-    draw.text((left + _POLLEN_PAD_H, title_y + 4),
-              "Pollenflug", font=title_font, fill=pal["pollen_title"])
-
-    if not allergens:
-        draw.text((left + _POLLEN_PAD_H + 160, title_y + 4),
+    if mode == "none":
+        draw.text((left + pad_h + title_w + px(24), title_y + px(4)),
                   "keine Daten", font=label_font, fill=pal["pollen_label"])
         return
 
-    # Legende (nur anzeigen wenn Raster vorhanden)
-    if active:
-        LEG_DOT_D = 12
-        LEG_GAP   = 18
-        lx = right - _POLLEN_PAD_H
+    if mode == "text":
+        text_y = title_y + px(_POLLEN_TITLE_H) + px(_POLLEN_GAP_T)
+        draw.text((left + pad_h, text_y), f"Kein Pollenflug: {', '.join(inactive)}",
+                  font=label_font, fill=pal["pollen_label"])
+        return
+
+    data_top = top + px(_POLLEN_PAD_TOP) + px(_POLLEN_TITLE_H) + px(_POLLEN_GAP_T)
+
+    # ── Legende rechts in der Titelzeile ──────────────────────────────────
+    if mode == "grid":
+        leg_d, leg_gap = px(12), px(18)
+        lx = right - pad_h
         for lbl in reversed(_POLLEN_DAY_LABELS):
             bb = draw.textbbox((0, 0), lbl, font=small_font)
             tw = max(bb[2] - bb[0], 1)
             lx -= tw
-            draw.text((lx, title_mid - (bb[3] - bb[1]) // 2),
-                      lbl, font=small_font, fill=pal["pollen_title"])
-            lx -= LEG_DOT_D + 5
-            draw.ellipse([(lx, title_mid - LEG_DOT_D // 2),
-                          (lx + LEG_DOT_D, title_mid + LEG_DOT_D // 2)],
+            draw.text((lx, title_mid - (bb[3] - bb[1]) // 2), lbl, font=small_font, fill=pal["pollen_title"])
+            lx -= leg_d + px(5)
+            draw.ellipse([(lx, title_mid - leg_d // 2), (lx + leg_d, title_mid + leg_d // 2)],
                          fill=(*pal["pollen_title"][:3], 170))
-            lx -= LEG_GAP
+            lx -= leg_gap
+    else:
+        # Chips: rechts steht, welche Allergene ohne Flug keinen Platz mehr hatten
+        dropped = [ALLERGEN_LABELS.get(a, a) for a in plan.get("dropped", [])]
+        if dropped:
+            note = f"ohne Flug: {', '.join(dropped)}"
+            max_w = right - pad_h - (left + pad_h + title_w + px(24))
+            if draw.textlength(note, font=small_font) > max_w:
+                note = f"{len(dropped)} ohne Flug"
+            draw.text((right - pad_h - draw.textlength(note, font=small_font), title_y + px(8)),
+                      note, font=small_font, fill=(*pal["pollen_label"][:3], 180))
 
-    # ── Kein-Pollenflug-Modus: nur Textzeile ─────────────────────────────
-    if not active:
-        names_str = ", ".join(inactive)
-        msg = f"Kein Pollenflug: {names_str}"
-        text_y = title_y + _POLLEN_TITLE_H + _POLLEN_GAP_T
-        draw.text((left + _POLLEN_PAD_H, text_y), msg,
-                  font=label_font, fill=pal["pollen_label"])
+    # ── Chips ─────────────────────────────────────────────────────────────
+    if mode == "chips":
+        chip_h, chip_gap = px(_POLLEN_CHIP_H), px(_POLLEN_CHIP_GAP)
+        big_r, mini_r = px(10), px(5)
+        flat = bool(pal.get("flat"))
+        y = data_top
+        for row in plan["rows"]:
+            x = left + pad_h
+            for allergen in row:
+                days = allergens[allergen]
+                is_active = allergen in active
+                name = ALLERGEN_LABELS.get(allergen, allergen)
+                peak = _peak(days)
+                value_label = _pollen_load_label(peak)
+                name_w = int(draw.textlength(name, font=label_font))
+                value_w = int(draw.textlength(value_label, font=small_font))
+                cw = px(12) + big_r * 2 + px(8) + name_w + px(8) + value_w + (px(6) + 3 * (mini_r * 2 + px(6)) if is_active else 0) + px(12)
+                mid = y + chip_h // 2
+                outline = (*pal["pollen_glass_outline"][:3], 255 if flat else 90)
+                draw.rounded_rectangle([(x, y), (x + cw, y + chip_h)], radius=0 if flat else chip_h // 2,
+                                       fill=(*pal["pollen_glass_tint"][:3], 0 if flat else 60), outline=outline, width=1)
+                cx = x + px(12) + big_r
+                _pollen_dot(draw, cx, mid, big_r, peak, pal)
+                tx = cx + big_r + px(8)
+                bb = draw.textbbox((0, 0), name, font=label_font)
+                draw.text((tx, mid - (bb[3] - bb[1]) // 2 - bb[1]), name, font=label_font,
+                          fill=pal["pollen_label"] if is_active else (*pal["pollen_label"][:3], 170))
+                tx += name_w + px(8)
+                bb = draw.textbbox((0, 0), value_label, font=small_font)
+                draw.text((tx, mid - (bb[3] - bb[1]) // 2 - bb[1]), value_label, font=small_font,
+                          fill=_pollen_value_color(peak, pal))
+                tx += value_w + px(6)
+                if is_active:
+                    for day_val in (days.get(k) for k in _POLLEN_DAY_KEYS):
+                        tx += mini_r
+                        _pollen_dot(draw, tx, mid, mini_r, day_val, pal, alpha=218)
+                        tx += mini_r + px(6)
+                x += cw + chip_gap
+            y += chip_h + chip_gap
         return
 
     # ── Datenraster für aktive Allergene ─────────────────────────────────
     n       = len(active)
     cols    = 2 if n > 1 else 1
-    col_gap = 18
-    col_w   = (w - 2 * _POLLEN_PAD_H - (cols - 1) * col_gap) // cols
-
-    data_top = top + _POLLEN_PAD_TOP + _POLLEN_TITLE_H + _POLLEN_GAP_T
+    col_gap = px(18)
+    col_w   = (w - 2 * pad_h - (cols - 1) * col_gap) // cols
+    row_h, row_gap = px(_POLLEN_ROW_H), px(_POLLEN_ROW_GAP)
+    big_r, small_r = px(_POLLEN_BIG_R), px(_POLLEN_SMALL_R)
 
     for idx, (allergen, days) in enumerate(active.items()):
         col_idx  = idx % cols
         row_idx  = idx // cols
 
-        col_left = left + _POLLEN_PAD_H + col_idx * (col_w + col_gap)
-        row_top  = data_top + row_idx * (_POLLEN_ROW_H + _POLLEN_ROW_GAP)
-        mid_y    = row_top + _POLLEN_ROW_H // 2
+        col_left = left + pad_h + col_idx * (col_w + col_gap)
+        row_top  = data_top + row_idx * (row_h + row_gap)
+        mid_y    = row_top + row_h // 2
 
-        if mid_y + _POLLEN_BIG_R > bottom:
+        if mid_y + big_r > bottom:
             continue
 
         label_txt  = ALLERGEN_LABELS.get(allergen, allergen)
         day_values = [days.get(k) for k in _POLLEN_DAY_KEYS]
-        valid_vals = [v for v in day_values if v is not None]
-        max_val    = max(valid_vals) if valid_vals else None
-        main_color = _pollen_load_color(max_val, flat=pal.get("flat", False))
 
         # Haupt-Farbpunkt (Peak der 3 Tage)
-        dot_cx = col_left + _POLLEN_BIG_R
-        dot_cy = mid_y
-        draw.ellipse(
-            [(dot_cx - _POLLEN_BIG_R, dot_cy - _POLLEN_BIG_R),
-             (dot_cx + _POLLEN_BIG_R, dot_cy + _POLLEN_BIG_R)],
-            fill=(*main_color, 225),
-        )
+        dot_cx = col_left + big_r
+        _pollen_dot(draw, dot_cx, mid_y, big_r, _peak(days), pal)
 
         # Allergen-Name
-        name_x = col_left + _POLLEN_BIG_R * 2 + 7
-        name_y = row_top + (_POLLEN_ROW_H - 18) // 2
+        name_x = col_left + big_r * 2 + px(7)
+        name_y = row_top + (row_h - px(18)) // 2
         draw.text((name_x, name_y), label_txt, font=label_font, fill=pal["pollen_label"])
 
         # Drei Tageswerte
-        day_x = name_x + _POLLEN_NAME_W
+        day_x = name_x + px(_POLLEN_NAME_W)
         for day_val in day_values:
-            color    = _pollen_load_color(day_val, flat=pal.get("flat", False))
-            val_text = _pollen_load_label(day_val)
-
-            draw.ellipse(
-                [(day_x, mid_y - _POLLEN_SMALL_R),
-                 (day_x + _POLLEN_SMALL_R * 2, mid_y + _POLLEN_SMALL_R)],
-                fill=(*color, 218),
-            )
-
-            val_y = row_top + (_POLLEN_ROW_H - 20) // 2
-            val_color = pal["pollen_label"] if color == (148, 155, 165) else (*color, 235)
-            draw.text((day_x + _POLLEN_SMALL_R * 2 + 5, val_y),
-                      val_text, font=small_font, fill=val_color)
-
-            day_x += _POLLEN_DAY_W
+            _pollen_dot(draw, day_x + small_r, mid_y, small_r, day_val, pal, alpha=218)
+            val_y = row_top + (row_h - px(20)) // 2
+            draw.text((day_x + small_r * 2 + px(5), val_y), _pollen_load_label(day_val),
+                      font=small_font, fill=_pollen_value_color(day_val, pal))
+            day_x += px(_POLLEN_DAY_W)
 
     # ── Kompakter Hinweis für inaktive Allergene ──────────────────────────
     if inactive:
         rows_used = (n + cols - 1) // cols
-        hint_y = (data_top
-                  + rows_used * _POLLEN_ROW_H
-                  + max(0, rows_used - 1) * _POLLEN_ROW_GAP
-                  + _POLLEN_ROW_GAP)
-        names_str = ", ".join(inactive)
-        hint_text = f"Kein Pollenflug: {names_str}"
-        label_color = (*pal["pollen_label"][:3], 160)
-        draw.text((left + _POLLEN_PAD_H, hint_y),
-                  hint_text, font=small_font, fill=label_color)
+        hint_y = data_top + rows_used * row_h + max(0, rows_used - 1) * row_gap + row_gap
+        draw.text((left + pad_h, hint_y), f"Kein Pollenflug: {', '.join(inactive)}",
+                  font=small_font, fill=(*pal["pollen_label"][:3], 160))
 
 
 # ---------------------------------------------------------------------------
@@ -1603,12 +1728,16 @@ def render_dwd_weather_module(context: ModuleRenderServices, content: object) ->
     if pollen_data:
         pollen_allergens = pollen_data.get("allergens", {})
         pollen_gap = 10
-        pollen_h   = pollen_strip_height(pollen_allergens)
+        # Höhenbudget: Stundenverlauf (mind. 200) und Tagesvorschau (110) behalten ihren Platz
+        pollen_budget = max(110, (panel_bottom - 14) - next_zone_top - pollen_gap - 200 - 10 - 110)
+        pollen_plan = plan_pollen_layout(pollen_allergens, (panel_right - 42) - (panel_left + 42), pollen_budget)
+        pollen_h   = pollen_plan["height"]
         pollen_top = next_zone_top
         draw_pollen_strip(
             img,
             (panel_left + 42, pollen_top, panel_right - 42, pollen_top + pollen_h),
             pollen_data, font_pollen_title, font_pollen_label, font_pollen_small, pal,
+            plan=pollen_plan,
         )
         zone3_top = pollen_top + pollen_h + pollen_gap
     else:
@@ -1727,6 +1856,17 @@ def render_dwd_weather_tile(context: ModuleRenderServices, content: object,
     if forecast_days and height - y >= fc_h + px(8):
         draw_compact_forecast_strip(img, (left, y, right, y + fc_h), forecast_days,
                                     font_fc_day, font_fc_temp, font_fc_meta, pal)
+        y += fc_h + px(12)
+
+    # Pollen, wenn danach noch Platz ist (kompakt als Chips, Raster nur bei viel Höhe)
+    pollen_data = data.get("pollen")
+    if pollen_data:
+        budget = height - y - px(8)
+        plan = plan_pollen_layout(pollen_data.get("allergens", {}), right - left, budget, s)
+        if plan["height"] <= budget:
+            draw_pollen_strip(img, (left, y, right, y + plan["height"]), pollen_data,
+                              context.load_font(px(24), True), context.load_font(px(19), True),
+                              context.load_font(px(18), False), pal, plan=plan, scale=s)
 
     return img.convert("RGB")
 

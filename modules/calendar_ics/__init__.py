@@ -141,23 +141,74 @@ class CalendarModule(PlexInkModule):
         }
 
     def describe_status(self, env: dict[str, str]) -> dict[str, str]:
-        from .data_source import parse_sources
-        if not parse_sources(env.get("CALENDAR_ICS_URLS", "")):
+        from .data_source import parse_sources, source_state
+        sources = parse_sources(env.get("CALENDAR_ICS_URLS", ""))
+        if not sources:
             return {"state": "missing", "reason": "ICS-Adresse fehlt"}
+        # Nur aus dem Cache lesen (wird bei jedem Seitenaufruf gefragt): alle Quellen
+        # gescheitert und nie etwas geladen → Fehler mit der ersten Meldung
+        states = [source_state(url) for _, url in sources]
+        if states and all(s["error"] and not s["loaded"] for s in states):
+            return {"state": "error", "reason": f"nicht erreichbar ({states[0]['error']})"}
         return {"state": "ready", "reason": ""}
 
     def summarize(self, env: dict[str, str]) -> str:
-        from .data_source import parse_sources
+        from .data_source import fetch_calendar_content, parse_sources
         sources = parse_sources(env.get("CALENDAR_ICS_URLS", ""))
         names = [label or f"Kalender {i + 1}" for i, (label, _) in enumerate(sources)]
-        return " · ".join(names + ([f"{env.get('CALENDAR_DAYS_AHEAD', '7')} Tage"] if names else []))
+        if not names:
+            return ""
+        parts = [", ".join(names), f"{env.get('CALENDAR_DAYS_AHEAD', '7')} Tage"]
+        try:
+            content = fetch_calendar_content(False)
+        except Exception:
+            content = None
+        nxt = _next_event(content)
+        if nxt:
+            parts.append(f"nächster: {nxt}")
+        if content and content.get("source_errors"):
+            failed = ", ".join(e["label"] for e in content["source_errors"])
+            parts.append(f"{failed} nicht erreichbar")
+        return " · ".join(parts)
 
     def probe(self, env: dict[str, str]) -> dict:
-        from .data_source import fetch_calendar_content
+        """
+        Lädt alle Kalender neu und liefert Details: je Quelle Anzahl oder
+        Fehler, dazu die nächsten Termine mit Quelle.
+        """
+        from .data_source import fetch_calendar_content, parse_sources, source_state
+        sources = parse_sources(env.get("CALENDAR_ICS_URLS", ""))
         content = fetch_calendar_content(True)
-        if not content:
-            return {"ok": False, "message": "Kalender nicht ladbar"}
-        return {"ok": True, "message": f"{content.get('total_events', 0)} Termine in den nächsten {content.get('days_ahead', 7)} Tagen"}
+        days_ahead = (content or {}).get("days_ahead") or env.get("CALENDAR_DAYS_AHEAD", "7")
+        details: list[str] = ["Quellen:"]
+        if content:
+            for src in content["sources"]:
+                if src["error"] and not src["loaded"]:
+                    details.append(f"{src['label']}: Fehler – {src['error']}")
+                elif src["error"]:
+                    details.append(f"{src['label']}: {src['count']} Termine (gespeicherter Stand, Quelle meldet {src['error']})")
+                else:
+                    details.append(f"{src['label']}: {src['count']} Termine in den nächsten {days_ahead} Tagen")
+        else:
+            for i, (label, url) in enumerate(sources):
+                state = source_state(url)
+                details.append(f"{label or f'Kalender {i + 1}'}: Fehler – {state['error'] or 'keine Antwort'}")
+            return {"ok": False, "message": "Kein Kalender ladbar", "details": details}
+
+        upcoming = _upcoming_lines(content, limit=6)
+        if upcoming:
+            details.append("Nächste Termine:")
+            details.extend(upcoming)
+        else:
+            details.append(f"Keine Termine in den nächsten {days_ahead} Tagen.")
+        if content.get("stale_since"):
+            details.append("Achtung: Mindestens eine Quelle ist gerade nicht erreichbar, gezeigt wird der letzte gespeicherte Stand.")
+        ok = not content.get("source_errors") or any(s["loaded"] for s in content["sources"])
+        failed = [e["label"] for e in content.get("source_errors", [])]
+        message = f"{content.get('total_events', 0)} Termine in den nächsten {days_ahead} Tagen"
+        if failed:
+            message += f" · {', '.join(failed)} nicht erreichbar"
+        return {"ok": ok, "message": message, "details": details}
 
     def get_health_status(self, env: dict[str, str]) -> dict[str, object] | None:
         from .data_source import parse_sources
@@ -181,6 +232,42 @@ class CalendarModule(PlexInkModule):
             if value and not value.isdigit():
                 errors.append(f"{label}: Muss eine ganze Zahl sein.")
         return errors
+
+
+def _event_when(day: dict, ev: dict) -> str:
+    """'heute 14:00', 'morgen ganztägig', 'Sa 12.09.' – kurz, für Zusammenfassung und Prüfen."""
+    from app.config import format_weekday_short
+    d = day["date"]
+    prefix = {0: "heute", 1: "morgen"}.get(day["in_days"], f"{format_weekday_short(d)} {d.day:02d}.{d.month:02d}.")
+    if ev.get("all_day"):
+        return f"{prefix} ganztägig"
+    start = ev.get("start")
+    if ev.get("continues"):
+        return f"{prefix} weiter"
+    return f"{prefix} {start:%H:%M}" if hasattr(start, "strftime") else prefix
+
+
+def _next_event(content: dict | None) -> str:
+    if not content:
+        return ""
+    for day in content.get("days", []):
+        for ev in day.get("events", []):
+            title = (ev.get("summary") or "").strip()
+            if len(title) > 32:
+                title = title[:31].rstrip() + "…"
+            return f"{_event_when(day, ev)} {title}"
+    return ""
+
+
+def _upcoming_lines(content: dict, limit: int = 6) -> list[str]:
+    lines: list[str] = []
+    for day in content.get("days", []):
+        for ev in day.get("events", []):
+            label = ev.get("label") or ""
+            lines.append(f"{_event_when(day, ev)} · {ev.get('summary', '')}" + (f" ({label})" if label else ""))
+            if len(lines) >= limit:
+                return lines
+    return lines
 
 
 module = CalendarModule()

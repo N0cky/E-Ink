@@ -32,7 +32,8 @@ Supported output modes:
 - **DWD weather** – current conditions, hourly timeline, multi-day forecast, UV index, and pollen data from the German Weather Service
 - **Tagesschau news** – current news cards with thumbnail and teaser text
 - **Müllabfuhr** – next garbage collection days from your municipality's ICS calendar, bin colours and icons included, with a `{year}` placeholder so the URL never needs a yearly update; reminder banner in the evening before collection (the module then jumps ahead in the rotation), week strip or list for the coming days, one column per address if you like, and the last good calendar is kept when the municipality's server is down
-- **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events
+- **Kalender** – today and the next days from one or more ICS calendars (Google, Nextcloud, iCloud, Outlook), with recurring events, a colour per calendar and multi-day events; the last good calendar is kept on disk and shown with "Stand vom …" when a source is down, and "Verbindung prüfen" lists the next appointments per calendar
+- **Render history** – the last 24 images the display received, as a strip under the live image on the *Anzeige* page; click one to see what the display showed at 7:30
 - **Dashboard mode** – instead of rotating full-screen modules, stack several of them as tiles in one image (`IDLE_LAYOUT=dashboard`): weather on top, calendar in the middle, garbage or news below. Fewer display refreshes, more information per glance
 - **Gallery** – local image folders as an idle module with random selection, blur background, and optional overlay
 - **Modular architecture** – add new content sources as standalone modules without touching the core framework
@@ -292,6 +293,8 @@ When settings are changed through the web UI, the application writes them back t
 | `/firmware.json`, `/firmware.bin` | GET | Firmware hosted for over-the-air updates (`x-MD5` header on the binary) |
 | `/api/device/firmware` | GET/POST/DELETE | Upload (multipart `file`), inspect or remove the hosted firmware |
 | `/api/device/log` | GET/DELETE | Device log sent with each acknowledgement |
+| `/api/history` | GET/DELETE | Render history: the last images the display received (time, content, hash, URL); DELETE clears it |
+| `/history/<id>.png` | GET | One image from the render history (reduced size) |
 | `/refresh` | POST | Force an immediate re-render |
 | `/webhook` | POST | Plex webhook receiver |
 | `/api/status` | GET | Runtime status including loaded modules |
@@ -319,6 +322,7 @@ PlexImageE-Ink/
 │   ├── module_services.py      # ModuleRenderServices (size, theme, fonts)
 │   ├── http_client.py          # Shared HTTP client, image download + cache
 │   ├── image_rendering.py      # Shared image helpers (crop, blur, canvas, Spectra 6)
+│   ├── history.py              # Render history (last images, index, pruning)
 │   └── text_rendering.py       # Shared text helpers (wrap, fit, draw lines)
 │
 ├── modules/                    # Fully self-contained modules

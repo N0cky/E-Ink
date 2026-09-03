@@ -11,13 +11,15 @@ COUNT, UNTIL, BYDAY (wöchentlich) sowie EXDATE.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.config import get_int_setting, get_setting, local_tz, now_local
+from app.config import DATA_DIR, get_int_setting, get_setting, local_tz, now_local
 from app.http_client import HTTP_SESSION, FETCH_RETRY_BACKOFF_SECONDS
 from app.logger import get_logger
 
@@ -29,8 +31,11 @@ DEFAULT_MAX_EVENTS = 14
 MAX_OCCURRENCES_PER_EVENT = 500
 SOURCE_COLORS = ("blue", "green", "red", "yellow")   # Reihenfolge der Quellen → Farbe
 
-_CACHE: dict[str, dict] = {}     # url → {"fetched_at", "last_attempt_at", "events"}
+CACHE_FILE = DATA_DIR / "calendar_cache.json"   # letzter guter Stand je Quelle (ICS-Text)
+
+_CACHE: dict[str, dict] = {}     # url → {"fetched_at", "last_attempt_at", "events", "error", "text"}
 _LOCK = threading.Lock()
+_DISK_LOADED = False
 
 WEEKDAY_CODES = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
 
@@ -325,13 +330,74 @@ def expand_occurrences(event: dict, window_start: date, window_end: date) -> lis
 
 
 # ---------------------------------------------------------------------------
+# Platten-Cache: der letzte gute ICS-Text je Quelle überlebt einen Neustart,
+# damit ein Ausfall des Kalender-Servers keine leere Seite bringt.
+# ---------------------------------------------------------------------------
+
+def _load_disk_cache() -> None:
+    """Einmal pro Prozess: gespeicherte Stände in den Speicher-Cache übernehmen (als abgelaufen)."""
+    global _DISK_LOADED
+    if _DISK_LOADED:
+        return
+    _DISK_LOADED = True
+    try:
+        if not CACHE_FILE.exists():
+            return
+        raw = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning(f"Kalender-Cache nicht lesbar: {exc}")
+        return
+    for url, entry in (raw or {}).items():
+        if url in _CACHE or not isinstance(entry, dict) or not entry.get("text"):
+            continue
+        try:
+            events = parse_ics_events(str(entry["text"]))
+        except Exception as exc:
+            log.warning(f"Kalender-Cache für {url[:60]}… unbrauchbar: {exc}")
+            continue
+        _CACHE[url] = {
+            "fetched_at": float(entry.get("fetched_at", 0.0)),
+            "last_attempt_at": 0.0,
+            "events": events,
+            "error": "",
+            "text": str(entry["text"]),
+        }
+
+
+def _save_disk_cache() -> None:
+    try:
+        payload = {
+            url: {"fetched_at": entry["fetched_at"], "text": entry["text"]}
+            for url, entry in _CACHE.items() if entry.get("text")
+        }
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, CACHE_FILE)
+    except Exception as exc:
+        log.warning(f"Kalender-Cache nicht speicherbar: {exc}")
+
+
+def _describe_error(exc: Exception) -> str:
+    """Kurze, menschenlesbare Fehlermeldung für Prüfen und Status."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status:
+        return f"HTTP {status}"
+    text = str(exc).strip() or exc.__class__.__name__
+    return text[:120]
+
+
+# ---------------------------------------------------------------------------
 # Fetch + Cache
 # ---------------------------------------------------------------------------
 
 def fetch_ics_events(url: str, force_refresh: bool = False) -> list[dict] | None:
+    """Events einer URL, gecacht. None nur, wenn nie erfolgreich geladen wurde."""
     cache_seconds = get_int_setting("CALENDAR_CACHE_SECONDS", DEFAULT_CACHE_SECONDS, 60, 86400)
     now = time.time()
     with _LOCK:
+        _load_disk_cache()
         entry = _CACHE.get(url)
         if entry is not None and not force_refresh:
             if entry["events"] is not None and now - entry["fetched_at"] < cache_seconds:
@@ -342,20 +408,37 @@ def fetch_ics_events(url: str, force_refresh: bool = False) -> list[dict] | None
             "fetched_at": entry["fetched_at"] if entry else 0.0,
             "last_attempt_at": now,
             "events": entry["events"] if entry else None,
+            "error": entry.get("error", "") if entry else "",
+            "text": entry.get("text", "") if entry else "",
         }
     try:
         response = HTTP_SESSION.get(url, timeout=30, headers={"User-Agent": "PlexImageE-Ink/1.0"})
         response.raise_for_status()
-        events = parse_ics_events(response.text)
+        text = response.text
+        events = parse_ics_events(text)
         with _LOCK:
-            _CACHE[url] = {"fetched_at": now, "last_attempt_at": now, "events": events}
+            _CACHE[url] = {"fetched_at": now, "last_attempt_at": now, "events": events, "error": "", "text": text}
+            _save_disk_cache()
         log.info(f"Kalender geladen: {len(events)} Einträge")
         return list(events)
     except Exception as exc:
         log.warning(f"Kalender nicht ladbar: {exc} – nächster Versuch in {FETCH_RETRY_BACKOFF_SECONDS}s")
         with _LOCK:
-            cached = _CACHE.get(url, {}).get("events")
+            _CACHE[url]["error"] = _describe_error(exc)
+            cached = _CACHE[url]["events"]
         return list(cached) if cached is not None else None
+
+
+def source_state(url: str) -> dict:
+    """{'fetched_at': float, 'error': str, 'loaded': bool} für eine URL (leer, wenn unbekannt)."""
+    with _LOCK:
+        _load_disk_cache()
+        entry = _CACHE.get(url) or {}
+        return {
+            "fetched_at": float(entry.get("fetched_at", 0.0)),
+            "error": str(entry.get("error", "") or ""),
+            "loaded": entry.get("events") is not None,
+        }
 
 
 def should_refresh_calendar() -> bool:
@@ -371,8 +454,10 @@ def should_refresh_calendar() -> bool:
 
 
 def clear_cache() -> None:
+    global _DISK_LOADED
     with _LOCK:
         _CACHE.clear()
+        _DISK_LOADED = False
 
 
 # ---------------------------------------------------------------------------
@@ -398,12 +483,14 @@ def build_calendar_content(sources_events: list[tuple[str, str, list[dict]]], no
     today = now.date()
     window_end = today + timedelta(days=days_ahead)
     occurrences: list[dict] = []
-    for label, color, events in sources_events:
+    source_counts = [0] * len(sources_events)
+    for index, (label, color, events) in enumerate(sources_events):
         for ev in events:
             for occ in expand_occurrences(ev, today, window_end):
                 occ["label"] = label
                 occ["color"] = color
                 occurrences.append(occ)
+                source_counts[index] += 1
 
     # Vergangene Termine von heute ausblenden (zeitgebunden und schon vorbei)
     if hide_past_today:
@@ -456,6 +543,7 @@ def build_calendar_content(sources_events: list[tuple[str, str, list[dict]]], no
         "days_ahead": days_ahead,
         "days": days,
         "total_events": len(occurrences),
+        "source_counts": source_counts,
     }
 
 
@@ -467,20 +555,38 @@ def fetch_calendar_content(force_refresh: bool = False) -> dict | None:
     max_events = get_int_setting("CALENDAR_MAX_EVENTS", DEFAULT_MAX_EVENTS, 1, 60)
     hide_past = get_setting("CALENDAR_HIDE_PAST_TODAY", "true").strip().lower() != "false"
 
+    cache_seconds = get_int_setting("CALENDAR_CACHE_SECONDS", DEFAULT_CACHE_SECONDS, 60, 86400)
+    now = now_local()
     sources_events: list[tuple[str, str, list[dict]]] = []
-    any_loaded = False
+    loaded_index: list[int] = []
+    oldest_stale = 0.0
     for index, (label, url) in enumerate(sources):
         events = fetch_ics_events(url, force_refresh)
         if events is None:
             continue
-        any_loaded = True
+        loaded_index.append(index)
         sources_events.append((label, SOURCE_COLORS[index % len(SOURCE_COLORS)], events))
-    if not any_loaded:
+        state = source_state(url)
+        # Quelle gerade nicht erreichbar und der Stand ist älter als ein Refresh → „Stand vom …“
+        if state["error"] and state["fetched_at"] and time.time() - state["fetched_at"] > cache_seconds:
+            oldest_stale = state["fetched_at"] if not oldest_stale else min(oldest_stale, state["fetched_at"])
+    if not sources_events:
         return None
 
-    content = build_calendar_content(sources_events, now_local(), days_ahead, max_events, hide_past)
-    content["sources"] = [
-        {"label": label or f"Kalender {i + 1}", "color": SOURCE_COLORS[i % len(SOURCE_COLORS)]}
-        for i, (label, _) in enumerate(sources)
-    ]
+    content = build_calendar_content(sources_events, now, days_ahead, max_events, hide_past)
+    counts = dict(zip(loaded_index, content.pop("source_counts", [])))
+    content["sources"] = []
+    for i, (label, url) in enumerate(sources):
+        state = source_state(url)
+        content["sources"].append({
+            "label": label or f"Kalender {i + 1}",
+            "color": SOURCE_COLORS[i % len(SOURCE_COLORS)],
+            "count": counts.get(i, 0),
+            "loaded": i in counts,
+            "error": state["error"],
+        })
+    content["source_errors"] = [{"label": s["label"], "error": s["error"]} for s in content["sources"] if s["error"]]
+    content["stale_since"] = (
+        datetime.fromtimestamp(oldest_stale, tz=now.tzinfo).isoformat() if oldest_stale else ""
+    )
     return content

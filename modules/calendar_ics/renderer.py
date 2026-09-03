@@ -85,6 +85,17 @@ def _time_label(ev: dict) -> str:
     return s.strftime("%H:%M")
 
 
+def _stale_text(data: dict) -> str:
+    raw = str(data.get("stale_since", "") or "")
+    if not raw:
+        return ""
+    try:
+        stale = datetime.fromisoformat(raw)
+    except ValueError:
+        return ""
+    return f"Stand vom {stale.day:02d}.{stale.month:02d}. {stale:%H:%M}"
+
+
 def _day_heading(day: dict) -> str:
     d: date = day["date"]
     rel = day["relative"]
@@ -111,6 +122,7 @@ def render_calendar_module(services: ModuleRenderServices, content: object, comp
 
     sources = data.get("sources") or []
     font_legend = load_font(px(22), False)
+    stale_text = _stale_text(data)
 
     # ── Kopfzeile ────────────────────────────────────────────────────────────
     if compact:
@@ -124,9 +136,15 @@ def render_calendar_module(services: ModuleRenderServices, content: object, comp
         draw.text((margin, px(86)), "Kalender", font=font_title, fill=pal["title"])
         legend_y = px(104)
         y = px(180)
+        if stale_text:
+            f = load_font(px(24), False)
+            draw.text((rw - margin - draw.textlength(stale_text, font=f), px(52)), stale_text, font=f, fill=pal["muted"])
 
-    # Legende der Quellen rechts oben
+    # Legende der Quellen rechts oben (kompakt: „Stand vom“ hat Vorrang, die Legende rückt links davon)
     lx = rw - margin
+    if compact and stale_text:
+        draw.text((lx - draw.textlength(stale_text, font=font_legend), legend_y), stale_text, font=font_legend, fill=pal["muted"])
+        lx -= int(draw.textlength(stale_text, font=font_legend)) + px(28)
     for src in reversed(sources[:4]):
         label = src.get("label", "")
         tw = int(draw.textlength(label, font=font_legend))

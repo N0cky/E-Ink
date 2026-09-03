@@ -371,10 +371,14 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
         f"theme={cfg.display_theme} fmt={cfg.output_format} "
         f"hash={_esp32_state['hash'][:8]}…{' (unverändert)' if unchanged else ''}"
     )
+    mod = _registry.get_module_by_id(module_id)
+    shown = "Dashboard" if module_id == "dashboard" else (mod.MODULE_NAME if mod else ("Kein Inhalt" if module_id == "none" else module_id))
     if module_id != previous_module and previous_module not in ("", "idle"):
-        mod = _registry.get_module_by_id(module_id)
-        shown = "Dashboard" if module_id == "dashboard" else (mod.MODULE_NAME if mod else module_id)
         log_event("switch", f"Display zeigt jetzt: {shown}")
+    if not unchanged:
+        # Verlauf: nur echte neue Bilder, nicht die „unverändert“-Durchläufe
+        from app import history
+        history.record(image, module_id, shown, image_hash)
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +762,31 @@ def current_epd():
         if not CURRENT_EPD_PATH.exists():
             return "Noch kein Bild.", 404
     return send_file(str(CURRENT_EPD_PATH), mimetype="application/octet-stream", max_age=0)
+
+
+# ── Render-Historie ──────────────────────────────────────────────────────────
+
+@app.route("/api/history", methods=["GET"])
+def api_history():
+    from app import history
+    return jsonify({"entries": history.list_entries(), "keep": history.HISTORY_KEEP})
+
+
+@app.route("/api/history", methods=["DELETE"])
+def api_history_delete():
+    from app import history
+    removed = history.clear()
+    log_event("history", f"Verlauf geleert ({removed} Bilder)")
+    return jsonify({"ok": True, "removed": removed})
+
+
+@app.route("/history/<entry_id>.png", methods=["GET"])
+def history_png(entry_id: str):
+    from app import history
+    path = history.image_path(entry_id)
+    if path is None:
+        return "Unbekannter Verlaufseintrag.", 404
+    return send_file(str(path), mimetype="image/png", max_age=86400)
 
 
 # ── Modul-Vorschau ───────────────────────────────────────────────────────────
