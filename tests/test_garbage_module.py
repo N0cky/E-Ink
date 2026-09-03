@@ -267,7 +267,7 @@ class ReminderAndShiftTest(unittest.TestCase):
         self.assertEqual(content["by_label"][1]["next"]["date"], date(2026, 9, 12))
         kinds = {k["summary"]: (k["color"], k["icon"]) for k in content["kinds"]}
         self.assertEqual(kinds["Gelber Sack"], ("yellow", "sack"))
-        self.assertEqual(kinds["Papiertonne"], ("blue", "paper"))
+        self.assertEqual(kinds["Papiertonne"], ("blue", "bin"), "steht 'Tonne' drin, ist es eine Tonne")
         self.assertEqual(kinds["Biotonne"], ("green", "bin"))
         single = ds.build_garbage_content(_series("Biotonne", "", [date(2026, 9, 14)]), date(2026, 9, 10), 14)
         self.assertEqual(single["by_label"], [], "eine Adresse → keine Spalten")
@@ -276,6 +276,8 @@ class ReminderAndShiftTest(unittest.TestCase):
         self.assertEqual(ds.classify_icon("Sperrmüll auf Abruf"), "bulky")
         self.assertEqual(ds.classify_icon("Weihnachtsbaumabfuhr"), "tree")
         self.assertEqual(ds.classify_icon("Altpapier"), "paper")
+        self.assertEqual(ds.classify_icon("Altpapiertonne"), "bin")
+        self.assertEqual(ds.classify_icon("Gelber Sack"), "sack")
         self.assertEqual(ds.classify_icon("Restmüll"), "bin")
 
 

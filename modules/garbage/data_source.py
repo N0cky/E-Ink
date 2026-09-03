@@ -138,7 +138,12 @@ def classify_type(summary: str, overrides: list[tuple[str, str]] | None = None) 
 
 
 def classify_icon(summary: str) -> str:
+    """'Gelber Sack' → Sack, 'Altpapiertonne' → Tonne (steht 'Tonne' drin, ist es eine), 'Altpapier' → Stapel."""
     text = (summary or "").lower()
+    if "sack" in text:
+        return "sack"
+    if "tonne" in text:
+        return "bin"
     for keyword, icon in ICON_KEYWORDS:
         if keyword in text:
             return icon

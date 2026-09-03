@@ -638,8 +638,8 @@ def render_garbage_module(services: ModuleRenderServices, content: object, compa
         y += _draw_strip(draw, margin, y, rw - 2 * margin, days, today, n_strip, strip_rows, pal, px, load_font, compact)
         y += gap_after
         remaining = rh - margin - y
-        # Vollbild: unter dem Streifen ist meist noch Platz – dann die Termine auch als Zeilen
-        if compact or not upcoming_days or remaining < lp(48) + 2 * row_h:
+        # Unter dem Streifen ist oft noch Platz – dann die Termine auch als Zeilen
+        if not upcoming_days or remaining < lp(48) + 2 * row_h:
             return img.convert("RGB")
         heading = "Termine"
 
@@ -652,23 +652,31 @@ def render_garbage_module(services: ModuleRenderServices, content: object, compa
 
     if not upcoming_days and next_day and not data.get("next_outside_window"):
         draw.text((margin, y), "Danach keine weiteren Termine im Zeitraum.", font=font_row_type, fill=pal["muted"])
+    chip_w, chip_h = lp(30), lp(40)
+    text_left = margin + lp(230)
+    text_right = rw - margin
     for day in upcoming_days:
-        if y + row_h > rh - margin:
+        groups = _group_events(day["events"])[:4]
+        labels = [g["summary"] + (f"  · {_group_note(g)}" if _group_note(g) else "") for g in groups]
+        widths = [chip_w + lp(14) + int(draw.textlength(lb, font=font_row_type)) for lb in labels]
+        # Passt alles in eine Zeile? Sonst jede Tonne in eine eigene Zeile (Zeile wird höher)
+        one_line = text_left + sum(widths) + lp(34) * max(0, len(widths) - 1) <= text_right
+        line_h = lp(40)
+        this_row_h = row_h if one_line else max(row_h, lp(16) + len(groups) * line_h + lp(6))
+        if y + this_row_h > rh - margin:
             break
         draw.line([(margin, y), (rw - margin, y)], fill=pal["row_line"], width=2 if flat else 1)
         draw.text((margin, y + lp(14)), _short_date(day["date"]), font=font_row_date, fill=pal["text"])
         draw.text((margin, y + lp(50)), day["relative"], font=font_row_rel, fill=pal["muted"])
-        cx = margin + lp(230)
-        for g in _group_events(day["events"])[:4]:
-            chip_w, chip_h = lp(30), lp(40)
-            draw_icon(draw, cx, y + lp(20), chip_w, chip_h, pal["bins"][g["color"]], pal, g["icon"])
-            cx += chip_w + lp(14)
-            note = _group_note(g)
-            label = g["summary"] + (f"  · {note}" if note else "")
-            draw.text((cx, y + lp(22)), label, font=font_row_type, fill=pal["text"])
-            cx += int(draw.textlength(label, font=font_row_type)) + lp(34)
-            if cx > rw - margin - lp(200):
-                break
-        y += row_h
+        cx, cy = text_left, y + lp(22)
+        for g, label, w in zip(groups, labels, widths):
+            draw_icon(draw, cx, cy - lp(2), chip_w, chip_h, pal["bins"][g["color"]], pal, g["icon"])
+            draw.text((cx + chip_w + lp(14), cy), _ellipsize(draw, label, font_row_type, text_right - cx - chip_w - lp(14)),
+                      font=font_row_type, fill=pal["text"])
+            if one_line:
+                cx += w + lp(34)
+            else:
+                cy += line_h
+        y += this_row_h
 
     return img.convert("RGB")
