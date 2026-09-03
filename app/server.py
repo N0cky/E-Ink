@@ -42,7 +42,6 @@ from app.config import (
     SETTINGS_GROUPS        as FRAMEWORK_SETTINGS_GROUPS,
     apply_runtime_config,
     get_settings_values,
-    get_settings_runtime_summary,
     validate_settings,
     write_env_settings,
     should_flip_output,
@@ -289,13 +288,13 @@ def render_no_content_image() -> Image.Image:
     font_sub  = load_font(22, False)
     font_hint = load_font(18, False)
 
-    draw.text((cx, by + 72),  "Keine aktiven Module",
+    draw.text((cx, by + 72),  "Noch kein Inhalt eingeschaltet",
               font=font_head, fill=text_col, anchor="mm")
-    draw.text((cx, by + 130), "Aktiviere ein Modul über",
+    draw.text((cx, by + 130), "Öffne die Weboberfläche im Browser",
               font=font_sub, fill=muted_col, anchor="mm")
-    draw.text((cx, by + 160), "Einstellungen → Idle-Module",
+    draw.text((cx, by + 160), "und schalte unter „Anzeige“ einen Inhalt ein.",
               font=font_sub, fill=muted_col, anchor="mm")
-    draw.text((cx, by + 220), "oder aktiviere das Plex-Modul unter Einstellungen → Plex",
+    draw.text((cx, by + 220), "Quellen wie Wetter, Kalender oder Müllabfuhr richtest du unter „Inhalte“ ein.",
               font=font_hint, fill=muted_col, anchor="mm")
     return img
 
@@ -624,45 +623,6 @@ def _all_fields_from_sections(sections: list[dict]) -> list[dict]:
                 fields.append(f)
                 seen.add(f["name"])
     return fields
-
-
-_FRAMEWORK_RUNTIME_CARDS = (
-    ("render_size",   "Rendergröße"),
-    ("theme",         "Display-Theme"),
-    ("rotation",      "Rotation"),
-    ("output_format", "Ausgabeformat"),
-    ("idle_modules",  "Idle-Module"),
-    ("idle_layout",   "Idle-Darstellung"),
-    ("idle_rotation", "Idle-Rotation"),
-    ("night_mode",    "Nachtmodus"),
-)
-
-
-def _build_runtime_cards() -> list[dict]:
-    """
-    Laufzeit-Status-Karten für die Settings-Seite: Framework-Werte zuerst,
-    dann jedes Modul mit dem, was es in get_runtime_summary() liefert
-    (Label → Wert). Ein neues Modul bekommt seine Karten automatisch.
-    """
-    env = get_settings_values()
-    framework = get_settings_runtime_summary()
-    cards: list[dict] = []
-    for key, label in _FRAMEWORK_RUNTIME_CARDS:
-        value = framework.get(key, "")
-        cards.append({
-            "label":  label,
-            "value":  value,
-            "accent": key == "theme" and value == "Light",
-        })
-    for mod in _registry.get_modules():
-        try:
-            summary = mod.get_runtime_summary(env) or {}
-        except Exception as exc:
-            log.warning(f"runtime_summary [{mod.MODULE_ID}]: {exc}")
-            continue
-        for label, value in summary.items():
-            cards.append({"label": str(label), "value": str(value), "accent": str(value) == "Aktiv"})
-    return cards
 
 
 def _build_module_health() -> dict[str, dict]:

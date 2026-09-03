@@ -75,6 +75,10 @@
 
 {% block content %}
 <div class="banner" id="errorBanner"></div>
+<div class="card" id="emptyHint" hidden style="margin-bottom:16px"><div class="card-body">
+    <div class="card-title">Erster Schritt</div>
+    <div style="font-size:14px;line-height:1.6">Noch ist kein Inhalt eingeschaltet, das Display zeigt einen Hinweis. Schalte im Programm einen bereiten Inhalt ein, oder richte unter <a href="/inhalte">Inhalte</a> eine Quelle ein. Wetter und Tagesschau funktionieren ohne Zugangsdaten.</div>
+</div></div>
 <div class="layout">
 
     {# ── Links: das Display ── #}
@@ -303,6 +307,8 @@
 
     function render() {
         if (!draft) return;
+        var anythingOn = draft.content.some(function (m) { return m.enabled; }) || draft.live.some(function (m) { return m.enabled; });
+        $('emptyHint').hidden = anythingOn;
         $('layoutRotation').checked = draft.layout === 'rotation';
         $('layoutDashboard').checked = draft.layout === 'dashboard';
         $('rotationSeconds').value = draft.rotation_seconds;
