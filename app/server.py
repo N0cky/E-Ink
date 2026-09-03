@@ -640,16 +640,76 @@ def _run_worker_cycle(last_state_key: str | None) -> str | None:
     return last_state_key
 
 
+def _notifier():
+    from app.notifications import Notifier
+    cfg = get_cfg()
+    return Notifier(cfg.notify_url, cfg.notify_events, cfg.notify_offline_minutes, cfg.notify_daily_hour,
+                    cfg.notify_base_url, cfg.notify_avatar_url)
+
+
+def _stale_sources(env: dict[str, str]) -> list:
+    """[(modul, Name, seit wann aus dem Cache), …] – Inhalte, die gerade nur den gespeicherten Stand zeigen."""
+    stale: list = []
+    for mod in _registry.get_idle_modules():
+        try:
+            if not mod.is_enabled(env):
+                continue
+            content = mod.fetch_content(env)
+            raw = (content or {}).get("stale_since") if isinstance(content, dict) else ""
+            if raw:
+                stale.append((mod.MODULE_ID, mod.MODULE_NAME, datetime.fromisoformat(str(raw))))
+        except Exception as exc:
+            log.debug(f"stale check [{mod.MODULE_ID}]: {exc}")
+    return stale
+
+
+def _current_summary() -> dict:
+    mod = _registry.get_module_by_id(str(_esp32_state.get("media_type", "")))
+    media = str(_esp32_state.get("media_type", ""))
+    name = "Dashboard" if media == "dashboard" else (mod.MODULE_NAME if mod else ("Kein Inhalt" if media in ("none", "") else media))
+    return {"module_name": name, "rendered_at": _esp32_state.get("rendered_at", "")}
+
+
+_NOTIFY_LOG = {
+    "offline": ("meldet sich nicht mehr – Benachrichtigung verschickt", logging.WARNING),
+    "online": ("ist wieder da – Entwarnung verschickt", logging.INFO),
+    "firmware": ("läuft mit neuer Firmware – Nachricht verschickt", logging.INFO),
+    "rollback": ("hat die Firmware zurückgerollt – Nachricht verschickt", logging.WARNING),
+    "errors": ("meldet wiederholt Fehler – Nachricht verschickt", logging.WARNING),
+    "source_down": ("Quelle nicht erreichbar – Nachricht verschickt", logging.WARNING),
+    "source_up": ("Quelle wieder erreichbar – Nachricht verschickt", logging.INFO),
+    "daily": ("Tagesbild verschickt", logging.INFO),
+    "weekly": ("Wochenbericht verschickt", logging.INFO),
+}
+
+
+def _log_notifications(kinds: list) -> None:
+    from app import monitoring
+    device = _last_ack.get("device_id") or "Gerät"
+    for kind in kinds:
+        monitoring.increment("pleximage_notifications_total", kind=kind)
+        text, level = _NOTIFY_LOG.get(kind, ("Nachricht verschickt", logging.INFO))
+        log_event("device", f"{device}: {text}" if kind in ("offline", "online", "firmware", "rollback", "errors") else text, level)
+
+
 def _check_device_offline() -> None:
-    """Nach jedem Worker-Durchlauf: Gerät zu lange still? Dann einmal melden."""
+    """Nach jedem Worker-Durchlauf: Ausfall, Quellen, Tagesbild, Wochenbericht."""
     try:
         from app import monitoring
-        cfg = get_cfg()
-        if monitoring.check_device_offline(_last_ack, cfg.notify_url, cfg.notify_offline_minutes) == "offline":
-            monitoring.increment("pleximage_notifications_total", kind="offline")
-            log_event("device", f"Gerät {_last_ack.get('device_id') or '?'} meldet sich nicht mehr – Benachrichtigung verschickt", logging.WARNING)
+        notifier = _notifier()
+        if not notifier.url:
+            return
+        env = get_settings_values()
+        sent = notifier.on_cycle(
+            _last_ack, _get_local_now(),
+            stale_sources=_stale_sources(env) if "sources" in notifier.events else [],
+            current=_current_summary(),
+            weekly_stats=lambda: monitoring.ack_stats(monitoring.read_ack_history(limit=5000, hours=24 * 7),
+                                                      _suggest_next_wake(_esp32_state.get("state", "idle"), _esp32_state.get("media_type", "idle"))[0]),
+        )
+        _log_notifications(sent)
     except Exception as exc:
-        log.warning(f"Ausfallprüfung: {exc}")
+        log.warning(f"Benachrichtigungen: {exc}")
 
 
 def periodic_worker() -> None:
@@ -986,13 +1046,11 @@ def ack():
     hash_short = ack_data.get("hash", "")[:8] or "–"
     matches = ack_data.get("hash", "") == _esp32_state.get("hash", "")
 
-    # Beobachtung: Historie, Zähler, Entwarnung nach gemeldetem Ausfall, letzte Rückmeldung überlebt einen Neustart
+    # Beobachtung: Historie, Zähler, Ereignisse (Entwarnung, Firmware, Fehlerserie), letzte Rückmeldung überlebt einen Neustart
     monitoring.record_ack(ack_data, matches)
     monitoring.increment("pleximage_acks_total", result=result)
     try:
-        if monitoring.note_device_ack(ack_data, get_cfg().notify_url) == "online":
-            monitoring.increment("pleximage_notifications_total", kind="online")
-            log_event("device", f"Gerät {device} ist wieder da – Entwarnung verschickt")
+        _log_notifications(_notifier().on_ack(ack_data, previous))
         state = load_device_state()
         state["last_ack"] = ack_data
         save_device_state(state)
@@ -1089,10 +1147,12 @@ def api_notify_test():
         return jsonify({"ok": False, "error": "Keine Adresse für Benachrichtigungen eingetragen."}), 400
     if not url.lower().startswith(("http://", "https://")):
         return jsonify({"ok": False, "error": "Die Adresse muss mit http:// oder https:// beginnen."}), 400
-    device = _last_ack.get("device_id") or "Das Display"
-    ok = monitoring.send_notification(url, "PlexImageE-Ink: Testnachricht",
-                                      f"Benachrichtigungen funktionieren. {device} wird gemeldet, wenn es sich "
-                                      f"{get_cfg().notify_offline_minutes} min nicht meldet.", tags="bell")
+    from app.notifications import Notifier
+    cfg = get_cfg()
+    events = body.get("events") if isinstance(body.get("events"), list) else cfg.notify_events
+    notifier = Notifier(url, events, cfg.notify_offline_minutes, cfg.notify_daily_hour,
+                        str(body.get("base_url") or cfg.notify_base_url), str(body.get("avatar_url") or cfg.notify_avatar_url))
+    ok = notifier.send_test(_last_ack, _current_summary())
     if not ok:
         return jsonify({"ok": False, "error": "Die Nachricht kam nicht an – Adresse prüfen (Ereignisse zeigen die Antwort)."}), 502
     monitoring.increment("pleximage_notifications_total", kind="test")

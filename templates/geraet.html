@@ -86,7 +86,7 @@ details[open] summary { margin-bottom: 8px; }
                 <button class="btn" type="button" id="testNotify">Testnachricht senden</button>
                 <span class="state" id="notifyState">Keine Änderungen</span>
             </div>
-            <div class="hint" style="margin-top:8px">Mit <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy</a> reicht ein Topic wie <span class="mono">https://ntfy.sh/mein-display</span> und die App auf dem Handy. Discord- und Slack-Webhooks gehen auch. Für Grafana oder Uptime-Kuma gibt es <a class="mono" href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.</div>
+            <div class="hint" style="margin-top:8px">Discord: Webhook-Adresse des Kanals eintragen, die Nachrichten kommen als Embed mit Logo, Farbstreifen, Feldern und dem Display-Bild. Mit <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy</a> reicht ein Topic wie <span class="mono">https://ntfy.sh/mein-display</span> und die App auf dem Handy. Slack-Webhooks gehen auch. Für Grafana oder Uptime-Kuma gibt es <a class="mono" href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.</div>
         </div></div>
         <div class="card"><div class="card-body">
             <details>
@@ -189,8 +189,8 @@ details[open] summary { margin-bottom: 8px; }
         var btn = this; btn.disabled = true; btn.textContent = 'Sendet …';
         var values = fields.collect($('notifyForm'));
         try {
-            await ui.json('/api/notify/test', { method: 'POST', body: { url: values.NOTIFY_URL || '' } });
-            ui.toast('Testnachricht verschickt. Sie sollte jetzt auf dem Handy sein.', 'ok', 5000);
+            await ui.json('/api/notify/test', { method: 'POST', body: { url: values.NOTIFY_URL || '', base_url: values.NOTIFY_BASE_URL || '', avatar_url: values.NOTIFY_AVATAR_URL || '', events: values.NOTIFY_EVENTS || [] } });
+            ui.toast('Testnachricht verschickt – mit Feldern und dem aktuellen Display-Bild.', 'ok', 5000);
         } catch (e) { ui.toast('Nicht angekommen: ' + e.message, 'error', 6000); }
         btn.disabled = false; btn.textContent = 'Testnachricht senden';
     });

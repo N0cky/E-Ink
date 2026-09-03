@@ -213,6 +213,47 @@ SETTINGS_FIELDS: list[dict] = [
         "max":     1440,
         "help":    "Minuten ohne Rückmeldung des Geräts, bis die Nachricht rausgeht. 0 = nie.",
     },
+    {
+        "name":    "NOTIFY_EVENTS",
+        "label":   "Ereignisse",
+        "type":    "checkbox_group",
+        "section": "framework",
+        "wide":    True,
+        "default": "offline,firmware",
+        "options": [],   # aus app.notifications.EVENT_OPTIONS (zur Laufzeit befüllt)
+        "help":    "Was gemeldet wird. Tagesbild und Wochenbericht bringen das aktuelle Display-Bild mit (Discord und ntfy).",
+    },
+    {
+        "name":    "NOTIFY_DAILY_HOUR",
+        "label":   "Tagesbild und Wochenbericht um (Uhr)",
+        "type":    "number",
+        "section": "framework",
+        "wide":    False,
+        "default": "7",
+        "min":     0,
+        "max":     23,
+        "help":    "Stunde, ab der das Tagesbild (täglich) und der Wochenbericht (montags) verschickt werden.",
+    },
+    {
+        "name":        "NOTIFY_BASE_URL",
+        "label":       "Adresse des Servers",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        True,
+        "default":     "",
+        "placeholder": "http://192.168.178.6:8787",
+        "help":        "Wie du den Server im Browser aufrufst. Damit bekommen Nachrichten einen Link zur Gerät-Seite, und Slack kann das Bild einbinden.",
+    },
+    {
+        "name":        "NOTIFY_AVATAR_URL",
+        "label":       "Profilbild",
+        "type":        "text",
+        "section":     "framework",
+        "wide":        True,
+        "default":     "",
+        "placeholder": "leer = Logo aus dem GitHub-Repo",
+        "help":        "Öffentlich erreichbare Bildadresse für Discord (Profilbild) und ntfy (Icon). Leer nimmt das Projektlogo.",
+    },
     # ── Lokalisierung ────────────────────────────────────────────────────────
     {
         "name":        "TIMEZONE",
@@ -387,7 +428,7 @@ SETTINGS_GROUPS: list[dict] = [
     {
         "title":  "Benachrichtigung",
         "desc":   "Nachricht aufs Handy, wenn das Display ausfällt oder wieder da ist.",
-        "fields": ["NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES"],
+        "fields": ["NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES", "NOTIFY_EVENTS", "NOTIFY_DAILY_HOUR", "NOTIFY_BASE_URL", "NOTIFY_AVATAR_URL"],
     },
     {
         "title":  "Lokalisierung",
@@ -543,6 +584,10 @@ class RuntimeConfig:
     schedule_windows:              tuple = ()             # (schedule.Window, …) – leer: alter Nachtmodus gilt
     notify_url:                    str   = ""             # ntfy/Discord/Slack – leer: keine Benachrichtigung
     notify_offline_minutes:        int   = 30             # 0 = nie melden
+    notify_events:                 tuple = ("offline", "firmware")
+    notify_daily_hour:             int   = 7
+    notify_base_url:               str   = ""
+    notify_avatar_url:             str   = ""
     night_mode_enabled:            bool  = False
     night_mode_start:              str   = "23:00"
     night_mode_end:                str   = "07:00"
@@ -760,6 +805,10 @@ def validate_settings(updates: dict[str, str], all_fields: list[dict] | None = N
     notify_url = get_env_value(updates, "NOTIFY_URL", "").strip()
     if notify_url and not notify_url.lower().startswith(("http://", "https://")):
         errors.append("Benachrichtigung an: Bitte eine Adresse mit http:// oder https:// angeben.")
+    for key, label in (("NOTIFY_BASE_URL", "Adresse des Servers"), ("NOTIFY_AVATAR_URL", "Profilbild")):
+        value = get_env_value(updates, key, "").strip()
+        if value and not value.lower().startswith(("http://", "https://")):
+            errors.append(f"{label}: Bitte eine Adresse mit http:// oder https:// angeben.")
 
     return errors
 
@@ -782,6 +831,11 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     panel_clean_hour = _parse_int(settings, "PANEL_CLEAN_HOUR", 3, 0, 23)
     notify_url = get_env_value(settings, "NOTIFY_URL", "").strip()
     notify_offline_minutes = _parse_int(settings, "NOTIFY_OFFLINE_MINUTES", 30, 0, 1440)
+    notify_events_raw = settings.get("NOTIFY_EVENTS")
+    notify_events = parse_idle_module_ids("offline,firmware" if notify_events_raw is None else str(notify_events_raw))
+    notify_daily_hour = _parse_int(settings, "NOTIFY_DAILY_HOUR", 7, 0, 23)
+    notify_base_url = get_env_value(settings, "NOTIFY_BASE_URL", "").strip().rstrip("/")
+    notify_avatar_url = get_env_value(settings, "NOTIFY_AVATAR_URL", "").strip()
     display_theme = get_env_value(settings, "DISPLAY_THEME", "dark").strip().lower()
     if display_theme not in AVAILABLE_THEMES:
         display_theme = "dark"
@@ -828,6 +882,10 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "PANEL_CLEAN_HOUR": as_env_value(panel_clean_hour),
         "NOTIFY_URL": as_env_value(notify_url),
         "NOTIFY_OFFLINE_MINUTES": as_env_value(notify_offline_minutes),
+        "NOTIFY_EVENTS": as_env_value(",".join(notify_events)),
+        "NOTIFY_DAILY_HOUR": as_env_value(notify_daily_hour),
+        "NOTIFY_BASE_URL": as_env_value(notify_base_url),
+        "NOTIFY_AVATAR_URL": as_env_value(notify_avatar_url),
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
@@ -854,6 +912,10 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         panel_clean_hour=panel_clean_hour,
         notify_url=notify_url,
         notify_offline_minutes=notify_offline_minutes,
+        notify_events=notify_events,
+        notify_daily_hour=notify_daily_hour,
+        notify_base_url=notify_base_url,
+        notify_avatar_url=notify_avatar_url,
         render_width=render_w,
         render_height=render_h,
         timezone=timezone_name,

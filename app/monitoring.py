@@ -242,12 +242,13 @@ def check_device_offline(last_ack: dict, notify_url: str, offline_minutes: int, 
     state = load_device_state()
     if state.get("offline_notified_at"):
         return None
+    from app.notifications import Notification, deliver
     device = last_ack.get("device_id") or "Das Display"
-    ok = send_notification(
-        notify_url, "PlexImageE-Ink: Display ausgefallen",
+    ok = deliver(notify_url, Notification(
+        "offline", f"{device} ausgefallen",
         f"{device} hat sich seit {_format_minutes(age)} nicht gemeldet (zuletzt {ack_at.astimezone():%H:%M}).",
-        tags="warning", priority="high",
-    )
+        fields=[("Zuletzt gemeldet", f"{ack_at.astimezone():%d.%m. %H:%M}")], priority="high",
+    ))
     state["offline_notified_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     state["offline_notified_sent"] = ok
     save_device_state(state)
@@ -268,11 +269,11 @@ def note_device_ack(ack: dict, notify_url: str, now: datetime | None = None) -> 
     save_device_state(state)
     if not notify_url:
         return None
+    from app.notifications import Notification, deliver
     now = now or datetime.now(timezone.utc)
     device = ack.get("device_id") or "Das Display"
     gone = f" – war rund {_format_minutes(int((now - notified_at).total_seconds()))} länger weg" if notified_at else ""
-    send_notification(notify_url, "PlexImageE-Ink: Display wieder da",
-                      f"{device} meldet sich wieder{gone}.", tags="white_check_mark")
+    deliver(notify_url, Notification("online", f"{device} ist wieder da", f"{device} meldet sich wieder{gone}."))
     return "online"
 
 

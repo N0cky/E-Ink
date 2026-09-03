@@ -35,7 +35,8 @@ DISPLAY_MANAGED_KEYS = {
     "NIGHT_MODE_INTERVAL_MINUTES", "NIGHT_MODE_IDLE_BEHAVIOR", "NIGHT_MODE_FIXED_MODULE",
 }
 DEVICE_KEYS = {"RENDER_WIDTH", "RENDER_HEIGHT", "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT", "SHOW_RENDER_TIME",
-               "PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR", "NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES"}
+               "PANEL_CLEAN_INTERVAL_DAYS", "PANEL_CLEAN_HOUR", "NOTIFY_URL", "NOTIFY_OFFLINE_MINUTES",
+               "NOTIFY_EVENTS", "NOTIFY_DAILY_HOUR", "NOTIFY_BASE_URL", "NOTIFY_AVATAR_URL"}
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +181,9 @@ def build_display_state(esp32_state: dict, last_ack: dict, next_wake: tuple[int,
         "notify": {
             "url_set":         bool(cfg.notify_url),
             "offline_minutes": cfg.notify_offline_minutes,
+            "events":          list(cfg.notify_events),
+            "daily_hour":      cfg.notify_daily_hour,
+            "base_url_set":    bool(cfg.notify_base_url),
         },
         "device": {
             "device_id":        last_ack.get("device_id", ""),
@@ -386,8 +390,11 @@ def _effective_type(field: dict) -> str:
 def _field_view(field: dict, values: dict[str, str]) -> dict[str, Any]:
     name = field["name"]
     raw = values.get(name)
-    if raw in (None, ""):
+    if raw is None or (raw == "" and field.get("type") != "checkbox_group"):
         raw = field.get("default", "")
+    if name == "NOTIFY_EVENTS" and not field.get("options"):
+        from app.notifications import EVENT_OPTIONS
+        field = {**field, "options": [list(o) for o in EVENT_OPTIONS]}
     ftype = _effective_type(field)
     view = {
         "name":        name,
