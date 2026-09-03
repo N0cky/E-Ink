@@ -192,6 +192,34 @@ def create_flat_cover_canvas(
     return canvas, cy + ch
 
 
+def stamp_render_time(img: Image.Image, theme: str, text: str) -> Image.Image:
+    """
+    „Stand HH:MM“ als kleine Pille oben rechts auf ein fertiges Bild setzen.
+    Optional (SHOW_RENDER_TIME): so sieht man auf dem Panel, ob ein Bild alt ist,
+    wenn Server oder WLAN ausgefallen sind. Das Dashboard hat die Angabe selbst.
+    """
+    from app.config import load_font
+    out = img.convert("RGBA")
+    draw = ImageDraw.Draw(out, "RGBA")
+    scale = max(0.5, min(out.width / 1200.0, 1.4))
+    font = load_font(max(12, int(22 * scale)), True)
+    pad_x, pad_y = int(14 * scale), int(7 * scale)
+    tw = int(draw.textlength(text, font=font))
+    th = int(font.size * 1.15)
+    margin = int(24 * scale)
+    x1, y0 = out.width - margin, int(16 * scale)
+    x0, y1 = x1 - tw - 2 * pad_x, y0 + th + 2 * pad_y
+    if theme == "eink":
+        fill, outline, color, radius = (*SPECTRA6_COLORS["white"], 255), (*SPECTRA6_COLORS["black"], 255), (*SPECTRA6_COLORS["black"], 255), 0
+    elif theme == "light":
+        fill, outline, color, radius = (255, 254, 251, 235), (150, 142, 130, 120), (40, 34, 28, 255), int(th)
+    else:
+        fill, outline, color, radius = (20, 22, 28, 210), (255, 255, 255, 60), (230, 233, 240, 255), int(th)
+    draw.rounded_rectangle([(x0, y0), (x1, y1)], radius=radius, fill=fill, outline=outline, width=2)
+    draw.text((x0 + pad_x, y0 + pad_y), text, font=font, fill=color)
+    return out.convert("RGB")
+
+
 def prepare_photo_for_eink(img: Image.Image) -> Image.Image:
     """
     Foto für das 6-Farben-Panel aufbereiten: Kontrast strecken, Farben kräftiger,

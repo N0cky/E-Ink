@@ -150,6 +150,19 @@ SETTINGS_FIELDS: list[dict] = [
             "für das Waveshare Spectra 6 E-Ink-Display."
         ),
     },
+    {
+        "name":    "SHOW_RENDER_TIME",
+        "label":   "Uhrzeit auf jeder Seite",
+        "type":    "select",
+        "section": "framework",
+        "wide":    False,
+        "default": "false",
+        "options": [("false", "Aus"), ("true", "Ein – „Stand HH:MM“ oben rechts")],
+        "help":    (
+            "Zeigt auf jedem Bild, wann es erzeugt wurde. Fällt der Server oder das WLAN aus, "
+            "bleibt das alte Bild stehen – mit Uhrzeit erkennt man das sofort. Das Dashboard hat die Angabe immer."
+        ),
+    },
     # ── Lokalisierung ────────────────────────────────────────────────────────
     {
         "name":        "TIMEZONE",
@@ -300,7 +313,7 @@ SETTINGS_GROUPS: list[dict] = [
         "fields": [
             "REFRESH_INTERVAL",
             "RENDER_WIDTH", "RENDER_HEIGHT",
-            "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT",
+            "DISPLAY_ROTATION", "DISPLAY_THEME", "OUTPUT_FORMAT", "SHOW_RENDER_TIME",
         ],
     },
     {
@@ -442,6 +455,7 @@ class RuntimeConfig:
     display_rotation:   int  = 0
     display_theme:      str  = "dark"
     output_format:      str  = "png"
+    show_render_time:   bool = False
     render_width:       int  = 1600
     render_height:      int  = 1200
     timezone:           str  = "Europe/Berlin"
@@ -676,6 +690,7 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
     idle_modules_raw = get_env_value(settings, "IDLE_MODULES", "")
     refresh_interval = _parse_int(settings, "REFRESH_INTERVAL", 60, 10, 3600)
     output_format = get_env_value(settings, "OUTPUT_FORMAT", "png")
+    show_render_time = parse_bool_env(settings.get("SHOW_RENDER_TIME"), False)
     display_theme = get_env_value(settings, "DISPLAY_THEME", "dark").strip().lower()
     if display_theme not in AVAILABLE_THEMES:
         display_theme = "dark"
@@ -715,6 +730,7 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         "DISPLAY_ROTATION": as_env_value(rotation),
         "DISPLAY_THEME": as_env_value(display_theme),
         "OUTPUT_FORMAT": as_env_value(output_format),
+        "SHOW_RENDER_TIME": as_env_value(show_render_time),
         "TIMEZONE": as_env_value(timezone_name),
         "IDLE_MODULES": as_env_value(",".join(idle_module_ids)),
         "IDLE_MODULE_ROTATION_SECONDS": as_env_value(idle_rotation_seconds),
@@ -735,6 +751,7 @@ def apply_runtime_config(settings: dict[str, str] | None = None) -> None:
         display_rotation=rotation,
         display_theme=display_theme,
         output_format=output_format,
+        show_render_time=show_render_time,
         render_width=render_w,
         render_height=render_h,
         timezone=timezone_name,

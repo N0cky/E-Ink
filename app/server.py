@@ -323,6 +323,11 @@ def _save_image(image: Image.Image, state_key: str, module_id: str) -> None:
     global _esp32_state
     cfg = get_cfg()
 
+    # Optional: Uhrzeit auf jeder Seite (das Dashboard hat sie selbst)
+    if getattr(cfg, "show_render_time", False) and module_id != "dashboard":
+        from app.image_rendering import stamp_render_time
+        image = stamp_render_time(image, cfg.display_theme, f"Stand {_get_local_now():%H:%M}")
+
     if should_flip_output(cfg.display_rotation):
         image = image.transpose(Image.Transpose.ROTATE_180)
 

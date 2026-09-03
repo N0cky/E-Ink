@@ -88,6 +88,7 @@ class _FakeCfg:
     output_format = "png"
     display_rotation = 0
     display_theme = "dark"
+    show_render_time = False
     render_width = 400
     render_height = 300
     idle_module_rotation_seconds = 300
@@ -113,6 +114,24 @@ def _with_modules(priority: list, idle: list):
 # ---------------------------------------------------------------------------
 
 class SaveImageTest(_PipelineTestBase):
+    def test_render_time_stamp_is_optional_and_skips_dashboard(self) -> None:
+        blank = Image.new("RGB", (600, 800), (30, 30, 30))
+        server._save_image(blank, "fake:plain", "fake")
+        plain = Image.open(self.tmp / "current.png").convert("RGB").copy()
+
+        class _Stamped(_FakeCfg):
+            show_render_time = True
+
+        with patch.object(server, "get_cfg", return_value=_Stamped()):
+            server._save_image(blank, "fake:stamped", "fake")
+            stamped = Image.open(self.tmp / "current.png").convert("RGB").copy()
+            server._save_image(blank, "dash:stamped", "dashboard")
+            dashboard = Image.open(self.tmp / "current.png").convert("RGB").copy()
+        # Oben rechts steht jetzt die Pille, der Rest ist unverändert
+        self.assertNotEqual(plain.crop((400, 0, 600, 60)).tobytes(), stamped.crop((400, 0, 600, 60)).tobytes())
+        self.assertEqual(plain.crop((0, 100, 600, 800)).tobytes(), stamped.crop((0, 100, 600, 800)).tobytes())
+        self.assertEqual(dashboard.tobytes(), plain.tobytes(), "Dashboard bekommt keine zweite Uhrzeit")
+
     def test_writes_png_atomically_and_hashes_bytes(self) -> None:
         img = Image.new("RGB", (4, 4), (0, 255, 0))
         server._save_image(img, "fake:1", "fake")
