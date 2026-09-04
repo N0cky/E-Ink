@@ -15,6 +15,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -27,6 +28,16 @@ if _example.exists():
     shutil.copy(_example, _config_file)
 else:
     _config_file.write_text("", encoding="utf-8")
+
+# `python -m unittest discover` ab der Projektwurzel importiert das Paket `modules`
+# (und darüber app.config) VOR diesem Paket. Dann stehen Konfigurationspfad und
+# Ausgabeordner schon fest auf den echten Dateien – ein späteres Umbiegen reicht nicht.
+# Lieber sofort und verständlich abbrechen, bevor ein Test in config/settings.env schreibt.
+if "app.config" in sys.modules:
+    raise RuntimeError(
+        "app.config wurde vor der Testisolierung importiert. "
+        "Testsuite bitte mit `python -m unittest discover -s tests -t .` starten (siehe CONTRIBUTING.md)."
+    )
 
 os.environ["INKWALL_CONFIG_FILE"] = str(_config_file)
 os.environ["INKWALL_OUTPUT_DIR"] = str(_TMP / "output")

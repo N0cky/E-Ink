@@ -41,7 +41,8 @@ class SettingsValidationFlowTest(unittest.TestCase):
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
-            patch("app.config.get_settings_values", return_value={**get_settings_values(), "GALLERY_PATHS": ""}),
+            # app.server hat den Namen direkt importiert – dort patchen, nicht in app.config
+            patch("app.server.get_settings_values", return_value={**get_settings_values(), "GALLERY_PATHS": ""}),
         ):
             response = self.client.put("/api/display", json={"content": [{"id": "gallery", "enabled": True}]})
 
@@ -72,7 +73,7 @@ class SettingsValidationFlowTest(unittest.TestCase):
             patch("app.server.write_env_settings") as write_env,
             patch("app.server.apply_runtime_config") as apply_cfg,
             patch("app.server.request_render") as render_image,
-            patch("app.config.get_settings_values", return_value={**get_settings_values(), "STEAM_PROFILE": "", "STEAM_API_KEY": ""}),
+            patch("app.server.get_settings_values", return_value={**get_settings_values(), "STEAM_PROFILE": "", "STEAM_API_KEY": ""}),
         ):
             response = self.client.put("/api/display", json={"live": [{"id": "steam", "enabled": True}]})
 
