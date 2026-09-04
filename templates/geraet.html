@@ -42,9 +42,10 @@ details[open] summary { margin-bottom: 8px; }
             <form id="deviceForm"><div class="hint">Wird geladen …</div></form>
             <div class="card-title" style="margin-top:18px">Theme · so sieht das aktuelle Bild in jeder Variante aus</div>
             <div class="themes" id="themes"></div>
-            <div class="actions-row">
-                <button class="btn primary" type="button" id="saveDevice">Speichern</button>
-                <span class="state" id="deviceState">Keine Änderungen</span>
+            <div class="savebar" id="deviceBar">
+                <button class="btn primary" type="button" data-save>Speichern</button>
+                <button class="btn" type="button" data-discard hidden>Verwerfen</button>
+                <span class="state">Keine Änderungen</span>
             </div>
         </div></div>
 
@@ -81,10 +82,11 @@ details[open] summary { margin-bottom: 8px; }
             <div class="card-title">Benachrichtigung</div>
             <div class="banner" id="notifyBanner"></div>
             <form id="notifyForm"><div class="hint">Wird geladen …</div></form>
-            <div class="actions-row" style="flex-wrap:wrap">
-                <button class="btn primary" type="button" id="saveNotify">Speichern</button>
+            <div class="savebar" id="notifyBar">
+                <button class="btn primary" type="button" data-save>Speichern</button>
+                <button class="btn" type="button" data-discard hidden>Verwerfen</button>
                 <button class="btn" type="button" id="testNotify">Testnachricht senden</button>
-                <span class="state" id="notifyState">Keine Änderungen</span>
+                <span class="state">Keine Änderungen</span>
             </div>
             <div class="hint" style="margin-top:8px">Discord: Webhook-Adresse des Kanals eintragen, die Nachrichten kommen als Embed mit Logo, Farbstreifen, Feldern und dem Display-Bild. Mit <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy</a> reicht ein Topic wie <span class="mono">https://ntfy.sh/mein-display</span> und die App auf dem Handy. Slack-Webhooks gehen auch. Für Grafana oder Uptime-Kuma gibt es <a class="mono" href="/metrics" target="_blank" rel="noreferrer">/metrics</a>.</div>
         </div></div>
@@ -107,23 +109,60 @@ details[open] summary { margin-bottom: 8px; }
     var THEMES = [['dark', 'Dark'], ['light', 'Light'], ['eink', 'E-Ink']];
     var currentTheme = '';
 
-    async function loadForm() {
-        var s = await ui.json('/api/settings/framework');
+    function loadSettings() { return ui.json('/api/settings/framework'); }
+
+    function renderNotify(s) {
         var notify = s.fields.filter(function (f) { return f.device && f.name.indexOf('NOTIFY_') === 0; });
-        var device = s.fields.filter(function (f) { return f.device && f.name.indexOf('NOTIFY_') !== 0; });
         var nform = $('notifyForm');
         nform.innerHTML = fields.renderGroups(notify, []);
-        fields.bind(nform, function () { $('notifyState').textContent = 'Nicht gespeicherte Änderungen'; $('notifyState').classList.add('dirty'); });
+        notifyBar.bind(nform);
+    }
+
+    function renderDevice(s) {
+        var device = s.fields.filter(function (f) { return f.device && f.name.indexOf('NOTIFY_') !== 0; });
         var themeField = device.find(function (f) { return f.name === 'DISPLAY_THEME'; });
         currentTheme = themeField ? themeField.value : 'dark';
         var form = $('deviceForm');
         form.innerHTML = fields.renderGroups(device, []);
         // Theme wird über die Vorschaukacheln gewählt – das Select bleibt als Fallback sichtbar
-        fields.bind(form, function () { $('deviceState').textContent = 'Nicht gespeicherte Änderungen'; $('deviceState').classList.add('dirty'); });
+        deviceBar.bind(form);
         var themeSelect = form.querySelector('[data-field="DISPLAY_THEME"]');
         if (themeSelect) themeSelect.addEventListener('change', function () { currentTheme = themeSelect.value; markThemes(); });
         renderThemes();
     }
+
+    async function loadForm() {
+        var s = await loadSettings();
+        renderDevice(s); renderNotify(s);
+    }
+
+    /* Beide Karten schreiben in dieselben Framework-Einstellungen, jede nur ihre eigenen Felder */
+    async function saveFramework(form, banner) {
+        fields.banner(banner, []);
+        try {
+            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
+            fields.clearErrors(form);
+        } catch (e) {
+            fields.banner(banner, fields.showErrors(form, e.data && e.data.errors));
+            throw e;
+        }
+    }
+
+    var deviceBar = fields.savebar($('deviceBar'), {
+        save: async function () {
+            await saveFramework($('deviceForm'), $('deviceBanner'));
+            ui.toast('Gespeichert. Das Bild wird neu erzeugt.', 'ok', 4000);
+            setTimeout(loadClient, 3000);
+        },
+        discard: async function () { renderDevice(await loadSettings()); }
+    });
+    var notifyBar = fields.savebar($('notifyBar'), {
+        save: async function () {
+            await saveFramework($('notifyForm'), $('notifyBanner'));
+            ui.toast('Gespeichert.', 'ok');
+        },
+        discard: async function () { renderNotify(await loadSettings()); }
+    });
 
     function renderThemes() {
         var state = window.__display || null;
@@ -151,39 +190,6 @@ details[open] summary { margin-bottom: 8px; }
             var chip = el.querySelector('[data-chip]'); chip.textContent = on ? 'gewählt' : ''; chip.className = 'chip' + (on ? ' accent' : '');
         });
     }
-
-    $('saveDevice').addEventListener('click', async function () {
-        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
-        var form = $('deviceForm'); var banner = $('deviceBanner'); banner.classList.remove('show'); banner.innerHTML = '';
-        try {
-            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
-            fields.clearErrors(form);
-            $('deviceState').textContent = 'Gespeichert'; $('deviceState').classList.remove('dirty');
-            ui.toast('Gespeichert. Das Bild wird neu erzeugt.', 'ok', 4000);
-            setTimeout(loadClient, 3000);
-        } catch (e) {
-            var general = fields.showErrors(form, e.data && e.data.errors);
-            if (general.length) { banner.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>'; banner.classList.add('show'); }
-            ui.toast('Nicht gespeichert', 'error');
-        }
-        btn.disabled = false; btn.textContent = 'Speichern';
-    });
-
-    $('saveNotify').addEventListener('click', async function () {
-        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
-        var form = $('notifyForm'); var banner = $('notifyBanner'); banner.classList.remove('show'); banner.innerHTML = '';
-        try {
-            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
-            fields.clearErrors(form);
-            $('notifyState').textContent = 'Gespeichert'; $('notifyState').classList.remove('dirty');
-            ui.toast('Gespeichert.', 'ok');
-        } catch (e) {
-            var general = fields.showErrors(form, e.data && e.data.errors);
-            if (general.length) { banner.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + general.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>'; banner.classList.add('show'); }
-            ui.toast('Nicht gespeichert', 'error');
-        }
-        btn.disabled = false; btn.textContent = 'Speichern';
-    });
 
     $('testNotify').addEventListener('click', async function () {
         var btn = this; btn.disabled = true; btn.textContent = 'Sendet …';

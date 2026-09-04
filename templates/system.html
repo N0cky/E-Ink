@@ -61,9 +61,10 @@
             <div class="card-title">Zeit &amp; Takt</div>
             <div class="banner" id="systemBanner"></div>
             <form id="systemForm"><div class="hint">Wird geladen …</div></form>
-            <div class="actions-row">
-                <button class="btn primary" type="button" id="saveSystem">Speichern</button>
-                <span class="state" id="systemState">Keine Änderungen</span>
+            <div class="savebar" id="systemBar">
+                <button class="btn primary" type="button" data-save>Speichern</button>
+                <button class="btn" type="button" data-discard hidden>Verwerfen</button>
+                <span class="state">Keine Änderungen</span>
             </div>
         </div></div>
 
@@ -148,22 +149,23 @@
             var sys = s.fields.filter(function (f) { return !f.device && !f.managed_by_display; });
             var form = $('systemForm');
             form.innerHTML = fields.renderGroups(sys, []);
-            fields.bind(form, function () { $('systemState').textContent = 'Nicht gespeicherte Änderungen'; $('systemState').classList.add('dirty'); });
+            systemBar.bind(form);
         } catch (e) { $('systemForm').innerHTML = '<div class="hint">Server nicht erreichbar.</div>'; }
     }
-    $('saveSystem').addEventListener('click', async function () {
-        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
-        var form = $('systemForm'); var banner = $('systemBanner'); banner.classList.remove('show'); banner.innerHTML = '';
-        try {
-            await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
-            fields.clearErrors(form); $('systemState').textContent = 'Gespeichert'; $('systemState').classList.remove('dirty');
-            ui.toast('Gespeichert', 'ok');
-        } catch (e) {
-            var general = fields.showErrors(form, e.data && e.data.errors);
-            if (general.length) { banner.innerHTML = general.map(esc).join('<br>'); banner.classList.add('show'); }
-            ui.toast('Nicht gespeichert', 'error');
-        }
-        btn.disabled = false; btn.textContent = 'Speichern';
+    var systemBar = fields.savebar($('systemBar'), {
+        save: async function () {
+            var form = $('systemForm'), banner = $('systemBanner');
+            fields.banner(banner, []);
+            try {
+                await ui.json('/api/settings/framework', { method: 'PUT', body: { values: fields.collect(form) } });
+                fields.clearErrors(form);
+                ui.toast('Gespeichert', 'ok');
+            } catch (e) {
+                fields.banner(banner, fields.showErrors(form, e.data && e.data.errors));
+                throw e;
+            }
+        },
+        discard: loadForm
     });
 
     /* ── Wartung ── */

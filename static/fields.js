@@ -116,9 +116,57 @@ window.fields = (function () {
         container.querySelectorAll('.list').forEach(function (list) { bindRowButtons(list, onChange); });
         container.querySelectorAll('select[data-datalist-url]').forEach(loadDatalist);
         container.querySelectorAll('.prio').forEach(function (list) { bindPrio(list, onChange); });
-        container.addEventListener('input', function () { onChange(); refreshConditional(container); });
-        container.addEventListener('change', function () { onChange(); refreshConditional(container); });
+        // Die Listener am Container nur einmal – bind() läuft nach jedem Neuaufbau des Inhalts erneut
+        container._fieldsOnChange = onChange;
+        if (!container._fieldsBound) {
+            container._fieldsBound = true;
+            container.addEventListener('input', function () { container._fieldsOnChange(); refreshConditional(container); });
+            container.addEventListener('change', function () { container._fieldsOnChange(); refreshConditional(container); });
+        }
         refreshConditional(container);
+    }
+
+    /* ── Speicherleiste: ein Baustein für alle Formulare ──
+       bar: <div class="savebar"> mit [data-save], optional [data-discard] und <span class="state">.
+       opts.save():    Promise – aufgelöst heißt gespeichert; abgelehnt heißt nicht gespeichert
+                       (Fehler an den Feldern zeigt die Seite selbst, den Toast macht die Leiste).
+       opts.discard(): stellt den zuletzt geladenen Stand wieder her; ohne discard bleibt „Verwerfen“ verborgen.
+       Rückgabe: { markDirty, markSaved, reset, isDirty, bind(form) } – bind() koppelt ein Formular an die Leiste. */
+    var bars = [];
+    function savebar(bar, opts) {
+        var stateEl = bar.querySelector('.state'), saveBtn = bar.querySelector('[data-save]'), discardBtn = bar.querySelector('[data-discard]');
+        var dirty = false, saveLabel = saveBtn.textContent;
+        function set(text, isDirty) {
+            dirty = isDirty; stateEl.textContent = text; bar.classList.toggle('dirty', isDirty);
+            if (discardBtn) discardBtn.hidden = !(isDirty && opts.discard);
+        }
+        var api = {
+            markDirty: function () { if (!dirty) set('Nicht gespeicherte Änderungen', true); },
+            markSaved: function () { set('Gespeichert', false); },
+            reset: function () { set('Keine Änderungen', false); },
+            isDirty: function () { return dirty; },
+            bind: function (form) { bind(form, api.markDirty); return api; }
+        };
+        saveBtn.addEventListener('click', async function () {
+            saveBtn.disabled = true; saveBtn.textContent = 'Speichert …';
+            try { await opts.save(); api.markSaved(); }
+            catch (e) { ui.toast('Nicht gespeichert', 'error'); }
+            saveBtn.disabled = false; saveBtn.textContent = saveLabel;
+        });
+        if (discardBtn) discardBtn.addEventListener('click', function () { api.reset(); if (opts.discard) opts.discard(); });
+        bars.push(api);
+        return api;
+    }
+    // Eine Warnung beim Verlassen der Seite, sobald irgendeine Leiste ungespeicherte Änderungen hat
+    window.addEventListener('beforeunload', function (e) {
+        if (bars.some(function (b) { return b.isDirty(); })) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    /* Roter Kasten über dem Formular für Fehler, die keinem Feld zuzuordnen sind */
+    function banner(el, lines) {
+        if (!lines || !lines.length) { el.classList.remove('show'); el.innerHTML = ''; return; }
+        el.innerHTML = 'Das konnte nicht gespeichert werden:<ul>' + lines.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join('') + '</ul>';
+        el.classList.add('show');
     }
 
     function bindRowButtons(list, onChange) {
@@ -223,5 +271,6 @@ window.fields = (function () {
         return html;
     }
 
-    return { renderField: renderField, renderGroups: renderGroups, bind: bind, collect: collect, showErrors: showErrors, clearErrors: clearErrors, bestUnit: bestUnit };
+    return { renderField: renderField, renderGroups: renderGroups, bind: bind, collect: collect, showErrors: showErrors, clearErrors: clearErrors, bestUnit: bestUnit,
+             savebar: savebar, banner: banner };
 })();

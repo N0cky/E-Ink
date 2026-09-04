@@ -43,6 +43,7 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 - Plex and Steam code, the Plex overlays and the Tagesschau drawing code moved from `app/` into their modules; `app/text_rendering.py` holds the shared text helpers; `ModuleRenderServices` reduced to size, theme and fonts
 - Settings status cards and the startup log are generated from every module's `get_runtime_summary()` (labels as keys)
 - DWD and Tagesschau headers show the date instead of "Plex ist aktuell idle"
+- One save bar for every form: Anzeige, every source card on Inhalte, Display and Benachrichtigung on Gerät and Zeit & Takt on System share the same bar (Speichern, Verwerfen while there are changes, state text) that sticks to the bottom of the window while its card is on screen; leaving a page with unsaved changes asks first on every page, not only on Anzeige (`fields.savebar`)
 - Data sources back off for 5 minutes after a failed fetch instead of retrying every tick; Plex being unreachable is logged once, not per tick
 - Plex posters and Steam artwork are cached between renders; Steam profile resolution no longer caches failures forever
 - `/api/logs` reads newest-first and stops at the limit; log file level is INFO
@@ -53,6 +54,7 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 - Time zones in Docker: hourly weather labels, "Aktualisiert" stamps and weekday names (`Mi` instead of `Wed`) use the configured zone and German names
 - A failed render is retried on the next tick instead of leaving the old image up
 - Module rescan no longer wipes packages it did not load itself
+- The save bar on the Anzeige page did not stick to the window: `overflow: hidden` on the page shell (there for the rounded corners) turned it into the scroll container; it is `overflow: clip` now
 - Anzeige page: once the render history held more thumbnails than fit in the strip, the left column grew to the full strip width and the live image overflowed the page; the column grid now clamps its cards (`minmax(0, 1fr)`), the strip scrolls as intended
 
 ## [0.1.0] - 2026-04-20

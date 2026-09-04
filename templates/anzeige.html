@@ -75,12 +75,6 @@
 .win-content .pct { width: 58px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); font-family: inherit; font-size: 12.5px; text-align: right; }
 
 /* ── Speichern ── */
-.savebar {
-    position: sticky; bottom: 12px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
-    background: var(--surface2); border: 1px solid var(--border-strong); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-page);
-}
-.savebar .state { font-size: 12.5px; color: var(--muted); }
-.savebar .state.dirty { color: var(--warn); font-weight: 800; }
 .banner { display: none; border-radius: 14px; padding: 12px 16px; font-size: 13px; font-weight: 700; background: rgba(239,68,68,.10); color: var(--danger); border: 1px solid rgba(239,68,68,.22); }
 .banner.show { display: block; }
 .banner ul { margin: 6px 0 0; padding-left: 18px; }
@@ -173,12 +167,10 @@
             <div class="field-error" id="err-SCHEDULE_WINDOWS"></div>
         </div></div>
 
-        <div class="savebar">
-            <span class="state" id="saveState">Keine Änderungen</span>
-            <div style="display:flex;gap:8px">
-                <button class="btn" type="button" id="discardBtn" hidden>Verwerfen</button>
-                <button class="btn primary" type="button" id="saveBtn">Speichern</button>
-            </div>
+        <div class="savebar" id="saveBar">
+            <button class="btn primary" type="button" data-save>Speichern</button>
+            <button class="btn" type="button" data-discard hidden>Verwerfen</button>
+            <span class="state">Keine Änderungen</span>
         </div>
     </div>
 </div>
@@ -385,10 +377,11 @@
 
         renderSchedule();
         bindRows();
-        $('saveState').textContent = dirty ? 'Nicht gespeicherte Änderungen' : 'Keine Änderungen';
-        $('saveState').classList.toggle('dirty', dirty);
-        $('discardBtn').hidden = !dirty;
+        syncBar();
     }
+
+    /* Die Speicherleiste folgt dem Entwurf: „Gespeichert“ bleibt stehen, bis wieder etwas geändert wird */
+    function syncBar() { if (dirty) bar.markDirty(); else if (bar.isDirty()) bar.reset(); }
 
     /* Live-Summe der Höhen im Dashboard-Modus – Feedback statt Fehlermeldung */
     function renderHeightSum() {
@@ -428,7 +421,7 @@
         });
         document.querySelectorAll('.height input').forEach(function (inp) {
             inp.addEventListener('input', function () {
-                var m = findModule(inp.getAttribute('data-id')); if (m) { m.height = inp.value ? parseInt(inp.value, 10) : null; dirty = true; $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false; renderHeightSum(); }
+                var m = findModule(inp.getAttribute('data-id')); if (m) { m.height = inp.value ? parseInt(inp.value, 10) : null; dirty = true; syncBar(); renderHeightSum(); }
             });
         });
         document.querySelectorAll('[data-preview]').forEach(function (b) {
@@ -553,8 +546,7 @@
     }
 
     function markDirtySchedule(rerender) {
-        dirty = true;
-        $('saveState').textContent = 'Nicht gespeicherte Änderungen'; $('saveState').classList.add('dirty'); $('discardBtn').hidden = false;
+        dirty = true; syncBar();
         if (rerender) renderSchedule();
     }
 
@@ -632,8 +624,6 @@
         markDirty();
     });
 
-    $('discardBtn').addEventListener('click', function () { dirty = false; editingWindow = -1; draft = JSON.parse(JSON.stringify(state)); clearErrors(); render(); });
-
     /* ── Speichern ── */
     function clearErrors() {
         $('errorBanner').classList.remove('show'); $('errorBanner').innerHTML = '';
@@ -655,8 +645,7 @@
         }
     }
 
-    $('saveBtn').addEventListener('click', async function () {
-        var btn = this; btn.disabled = true; btn.textContent = 'Speichert …';
+    async function saveAll() {
         var payload = {
             layout: draft.layout,
             rotation_seconds: draft.rotation_seconds,
@@ -676,12 +665,14 @@
             (result.notices || []).forEach(function (n) { ui.toast(n, 'info', 6000); });
         } catch (e) {
             showErrors(e.data && e.data.errors);
-            ui.toast('Nicht gespeichert', 'error');
+            throw e;
         }
-        btn.disabled = false; btn.textContent = 'Speichern';
-    });
+    }
 
-    window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+    var bar = fields.savebar($('saveBar'), {
+        save: saveAll,
+        discard: function () { dirty = false; editingWindow = -1; draft = JSON.parse(JSON.stringify(state)); clearErrors(); render(); }
+    });
 
     load();
     setInterval(load, 30000);
