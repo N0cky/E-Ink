@@ -53,6 +53,7 @@ The format is based on Keep a Changelog and is adapted for the first public rele
 - Time zones in Docker: hourly weather labels, "Aktualisiert" stamps and weekday names (`Mi` instead of `Wed`) use the configured zone and German names
 - A failed render is retried on the next tick instead of leaving the old image up
 - Module rescan no longer wipes packages it did not load itself
+- Anzeige page: once the render history held more thumbnails than fit in the strip, the left column grew to the full strip width and the live image overflowed the page; the column grid now clamps its cards (`minmax(0, 1fr)`), the strip scrolls as intended
 
 ## [0.1.0] - 2026-04-20
 

@@ -5,7 +5,7 @@
 {% block page_subtitle %}System{% endblock %}
 
 {% block extra_styles %}
-.stack { display: grid; gap: 16px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .tabs .seg label { padding: 6px 12px; }

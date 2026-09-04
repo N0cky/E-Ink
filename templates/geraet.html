@@ -6,7 +6,7 @@
 
 {% block extra_styles %}
 .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 5fr); gap: 20px; align-items: start; }
-.stack { display: grid; gap: 16px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
 .theme { border: 2px solid var(--border); border-radius: 14px; overflow: hidden; cursor: pointer; background: var(--surface3); }
 .theme.selected { border-color: var(--accent); }
