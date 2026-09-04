@@ -48,6 +48,8 @@ def _fake_http_get(url, params=None, timeout=None, **kwargs):
         payload = _load("dwd_uv.json")
     elif "transport.rest" in url:
         payload = _load("departures_vbb.json" if "/departures" in url else "departures_locations.json")
+    elif "tankerkoenig.de" in url:
+        payload = _load("tankerkoenig_list.json")
     else:
         png = _png_bytes()
         return SimpleNamespace(status_code=200, content=png, text="", json=lambda: {}, raise_for_status=lambda: None)
@@ -86,6 +88,9 @@ def _clear_module_caches() -> None:
     ts.TAGESSCHAU_NEWS_CACHE.update({"fetched_at": 0.0, "last_attempt_at": 0.0, "items": []})
     ts.TAGESSCHAU_IMAGE_CACHE.clear()
     http_client.clear_image_cache()
+    from modules.fuel_prices import data_source as fuel_ds, history as fuel_history
+    fuel_ds.clear_cache()
+    fuel_history.clear(delete_file=True)
 
 
 class _SmokeBase(unittest.TestCase):
@@ -107,8 +112,10 @@ class _SmokeBase(unittest.TestCase):
             "DISPLAY_THEME": cls.theme,
             "OUTPUT_FORMAT": "png",
             "TIMEZONE": "Europe/Berlin",
-            "IDLE_MODULES": "dwd_weather,tagesschau,gallery,departures",
+            "IDLE_MODULES": "dwd_weather,tagesschau,gallery,departures,fuel_prices",
             "DEPARTURES_STOPS": "Alex|900100003",
+            "FUEL_API_KEY": "12345678-1234-1234-1234-123456789abc",
+            "FUEL_LOCATION": "50.5556, 8.5045",
             "DWD_WEATHER_STATION_ID": "10532",
             "DWD_POLLEN_REGION": _pollen_region_key(),
             "DWD_POLLEN_ALLERGENS": "Graeser,Birke,Beifuss",
@@ -171,6 +178,15 @@ class _SmokeBase(unittest.TestCase):
         self._assert_image(module.render(self.env, content))
         self.assertEqual(module.render_tile(self.env, content, 600, 300).size, (600, 300))
         ds.clear_cache()
+
+    def test_fuel_prices(self) -> None:
+        from modules.fuel_prices import module
+        content = module.fetch_content(self.env)
+        self.assertIsNotNone(content, "Tankerkönig-Fixture muss Inhalt liefern")
+        self.assertEqual(content["stations"][0]["name"], "JET")
+        self.assertTrue(content["stats"]["day_points"], "die Abfrage landet in der Historie")
+        self._assert_image(module.render(self.env, content))
+        self.assertEqual(module.render_tile(self.env, content, 600, 300).size, (600, 300))
 
     def test_gallery(self) -> None:
         from modules.gallery import module
